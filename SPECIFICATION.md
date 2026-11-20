@@ -9,7 +9,7 @@
 | Team | Lazar Zubović (RA 13/2023), Smilja Krulj (RA 145/2023), Ivan Berenić (RA 59/2023) |
 | Implementation variant | Linux + Web |
 | Defense | 2026-12-03 |
-| Document version | 0.9 (draft): Sections 2.3 – 2.5 added (REQ-01 … REQ-66, NFR-01 … NFR-17, EXT-01 … EXT-11) |
+| Document version | 0.10 (draft): browser playback changed to HLS + hls.js (D-13, IF-INT-02, IF-INT-04, REQ-22 – REQ-25) |
 | Status | Sections 1, 2, 3 — done (Section 3 to be frozen at I-1); Section 4 (design) and Section 5 (verification plan) — next |
 
 ### Document conventions
@@ -191,7 +191,7 @@ In the key dialog all letter and digit keys are treated as text input; the playb
 | OTT MW REST server: services, service info, EPG | ✔ | HTTP server library | Operator back-end (JSON files instead of a database). |
 | Native DTV middleware: RTP reception, TS synchronization, PAT/PMT parsing, PID filtering, protection detection, decryption, key validation, session state, API to the UI | ✔ | Socket API, crypto library (OpenSSL), HTTP/WebSocket library | — |
 | Web application (UI): zapper, service list, info, EPG, archive navigation, key dialog, volume, keyboard handling | ✔ | Browser, HTML/CSS/JS | Remote control is replaced by the PC keyboard. |
-| Video/audio decoding and rendering | — | Browser media stack (Media Source Extensions) and the mpegts.js player library [D-13] | — |
+| Video/audio decoding and rendering | — | Browser media stack (Media Source Extensions) and the hls.js player library [D-13] | — |
 | Managed network | — | Loopback interface | One machine instead of an operator network [D-12]. |
 
 Note [GUIDELINES]: the use of a ready-made player for decoding does **not** replace the team's own implementation of RTP reception, PAT/PMT parsing, PID selection, protection detection, decryption and key validation. These are done in the team's code; the player receives an already decrypted single-program transport stream.
@@ -203,9 +203,9 @@ Note [GUIDELINES]: the use of a ready-made player for decoding does **not** repl
 - Real commercial CAS/DRM systems (NAGRA, Widevine …), smart cards and secure hardware; the documented scheme of D-04 is used instead.
 - Key rotation and the CAS key hierarchy (control words, ECM, EMM, service and user keys); one fixed key per protected service is used [D-04].
 - Obtaining keys from a server, subscriber management, billing, user accounts and login [D-03].
-- Local timeshift buffer and recording (PVR) in the receiver [D-01].
+- Local timeshift buffer and recording (PVR) in the receiver [D-01]; the short-lived HLS segments of D-13 are an output buffer for the browser, not a timeshift buffer.
 - A free time-entry dialog for rewind; time is selected through the EPG and the fixed-step keys [D-02].
-- Adaptive bitrate streaming, subtitles, teletext, multiple audio languages, multi-program transport streams (MPTS).
+- Adaptive bitrate streaming (the HLS output of D-13 has one quality level only), subtitles, teletext, multiple audio languages, multi-program transport streams (MPTS).
 - Video transcoding on the client side.
 
 #### 1.7.3 External interfaces (crossing the system boundary)
@@ -239,7 +239,7 @@ Where the task does not prescribe a solution, the team fixed the variant that is
 | D-10 | Protected services in live | Protected services are **protected in live and in the archive** with the same key (D-04); the key dialog appears for both. | The same encrypted file serves live and archive; no extra logic. |
 | D-11 | Incorrect key behavior | The receiver **detects** the incorrect key and shows the message "Incorrect decryption key"; **no corrupted data is passed to the player**. Detection: after decryption, a TS packet of the video PID with `payload_unit_start_indicator = 1` must begin with the PES start code `00 00 01`; if it does not, the key is rejected. | Deterministic, measurable result for the test; a browser decoder fed with garbage would not show a "corrupted picture" reliably, but would stall or report an error. |
 | D-12 | Demo environment | **One Linux laptop** (Ubuntu 24.04 LTS) runs the OTT MW server, the head-end, the native middleware and the browser; all communication over the loopback interface. The Web application runs in Chromium in full-screen kiosk mode; the screen is mirrored to the projector over HDMI. | No network setup at the defense; one start procedure. |
-| D-13 | Playback in the browser | The native middleware delivers the **decrypted** single-program TS to the Web application over a **WebSocket**; the Web application plays it with **mpegts.js** (MSE). Volume and mute are controlled on the HTML video element. | Browsers cannot receive RTP or play TS natively; mpegts.js plays TS from a WebSocket with low delay, so live, zap and rewind all use the same path. |
+| D-13 | Playback in the browser | The native middleware packages the **decrypted** single-program TS of the current session as an **HLS live stream** (RFC 8216): TS segments of about 1 s, each starting with PAT, PMT and a video key frame, and a sliding-window playlist `index.m3u8`, written to a temporary directory. The middleware's existing HTTP server (the one that serves the Web application) serves these files; **no additional server** is used. The Web application plays the playlist with **hls.js** (MSE). The content loop boundary of D-08 is signalled with `#EXT-X-DISCONTINUITY`. Volume and mute are controlled on the HTML video element. | Suggested by course staff; HLS is part of the course material (Lecture 4). Browsers cannot receive RTP or play TS natively; hls.js plays HLS with TS segments through MSE. The discontinuity tag lets the player handle the timestamp jump at the loop boundary without rewriting timestamps. Live, zap and rewind all use the same path. |
 | D-14 | Playback position while waiting for a key | The receiver remembers the **requested start point** of the current request: either "live" or the archive time T selected by the viewer (EPG event start or step position). When the stream of a protected service is stopped because no key or an incorrect key is known, this start point is kept. After a correct key is entered, playback is requested again **from the same start point**: archive content continues from time T (not from the moment the key was accepted); a live request continues at the current live point. The start point is discarded only when the viewer selects another service, another time, or returns to live. | Confirmed by course staff: playback continues from where it was started. Because the team's own head-end can start any service at any time T (D-01, D-06), resuming is just a repeated start request with the stored T. |
 
 ### 1.9 User stories
@@ -442,11 +442,11 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 |---|---|---|---|
 | HLR-11 | The receiver shall obtain the service list, service information and EPG only from the OTT MW REST server (HTTP, JSON). | [TASK]; IF-EXT-03 | I, T |
 | HLR-12 | The receiver shall determine the stream structure (program number, PMT PID, PCR PID, audio and video PIDs and stream types) only by parsing PAT and PMT from the received transport stream, with the team's own parser. | [TASK]; G-09 | I, T |
-| HLR-13 | RTP reception, TS packet synchronization, PID selection, protection detection, decryption and key validation shall be implemented in the team's own code in the receiver; the playback library shall receive only an already decrypted single-program transport stream. | [GUIDELINES]; Section 1.7.1; D-13 | I |
+| HLR-13 | RTP reception, TS packet synchronization, PID selection, protection detection, decryption and key validation shall be implemented in the team's own code in the receiver; the playback library shall receive only already decrypted HLS segments of a single-program transport stream. | [GUIDELINES]; Section 1.7.1; D-13 | I |
 | HLR-14 | The system shall include the operator (production) side built by the team: a packaging tool that encrypts content, a streaming head-end and an OTT MW REST server. | [TASK]; Section 1.7.1 | I, D |
 | HLR-15 | The head-end shall deliver any configured service, live or from any moment of the archive window, as a unicast MPEG-TS over RTP stream, started and stopped on the receiver's request. | [TASK]; D-01, D-05, D-06, D-08 | T |
 | HLR-16 | Protected content shall leave the operator side only in encrypted form; the decryption key shall never be transmitted by any component of the system. | D-03, D-04 | I, A |
-| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06; it shall not store content, keys or archive data persistently. | Section 1.7.3; D-01, D-03 | I |
+| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06; it shall not store content, keys or archive data persistently. The only content written to disk are the temporary HLS files of the current session (D-13): at most 10 segments at a time, deleted when the session ends and at start-up. | Section 1.7.3; D-01, D-03, D-13 | I, T |
 
 #### 2.1.3 Requirements derived from technical constraints
 
@@ -455,8 +455,8 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 | HLR-18 | The receiver shall follow the Linux + Web variant: the user interface is a Web application (HTML, CSS, JavaScript) running in a browser; the DTV logic runs in a separate native process on Linux, implemented in C++17 and built with CMake. | Team choice of variant; [GUIDELINES] | I |
 | HLR-19 | The server side (packaging tool, head-end, OTT MW REST server) shall be implemented in Python 3. | [GUIDELINES] (helper services in Python are allowed) | I |
 | HLR-20 | The complete system shall run on one laptop with Ubuntu 24.04 LTS, using only the loopback network interface, with the Web application in Chromium in full-screen kiosk mode. | D-12 | D |
-| HLR-21 | The Web application shall load the browser player library (mpegts.js) from a public CDN with an exact, pinned version number; Internet access is available in the runtime environment. All other system components (servers, native middleware, test content) shall run locally without Internet access. | D-12, D-13 | I, D |
-| HLR-22 | The system shall use the standards and formats defined in Section 2.2 (MPEG-TS, PSI, RTP, H.264, AAC, AES-128, HTTP/JSON, WebSocket). | [TASK]; D-04, D-05, D-09, D-13 | I, A |
+| HLR-21 | The Web application shall load the browser player library (hls.js) from a public CDN with an exact, pinned version number; Internet access is available in the runtime environment. All other system components (servers, native middleware, test content) shall run locally without Internet access. | D-12, D-13 | I, D |
+| HLR-22 | The system shall use the standards and formats defined in Section 2.2 (MPEG-TS, PSI, RTP, H.264, AAC, AES-128, HTTP/JSON, WebSocket, HLS). | [TASK]; D-04, D-05, D-09, D-13 | I, A |
 | HLR-23 | The complete system shall be started by one documented script and stopped by one documented script; all components shall write logs that serve as verification evidence. | US-22; [GUIDELINES] | D, I |
 | HLR-24 | The source code, specification and test data shall be kept in one Git repository, with run instructions in the repository. | [TASK]; [GUIDELINES] | I |
 
@@ -495,7 +495,8 @@ This section fixes the technical foundations of the system. The work is divided 
 | Network | IPv4, UDP (RFC 768) | RTP media delivery | Unicast over loopback [D-05, D-12]. |
 | Real-time transport | RTP, RFC 3550; MPEG-TS payload, RFC 2250 | Head-end → middleware | Version 2, payload type 33, 90 kHz timestamp, sequence number used for loss detection, **7 TS packets (1316 bytes) per RTP packet**. |
 | Request/response | HTTP/1.1 (RFC 9112) with JSON (RFC 8259), UTF-8 | MW REST API, stream control API | Responses `200` on success, `4xx` with a JSON error object on invalid requests [D-06]. |
-| Receiver ↔ UI | WebSocket, RFC 6455 | Control messages (JSON text frames) and media stream (binary frames) between middleware and Web application | — |
+| Receiver ↔ UI, control | WebSocket, RFC 6455 | Control messages (JSON text frames) between middleware and Web application (IF-INT-01) | — |
+| Receiver ↔ UI, media | HTTP Live Streaming (HLS), RFC 8216, over HTTP/1.1 | Decrypted content from middleware to the browser player (IF-INT-02) | Playlist version 3, live sliding window, MPEG-TS segments of about 1 s (at most 2 s), one quality level, `#EXT-X-DISCONTINUITY` at the content loop boundary. |
 | Time base | UNIX time in whole seconds, UTC | All times on all interfaces (EPG, start points, archive window) | The Web application converts to local time only for display. |
 
 #### 2.2.2 Signal path
@@ -521,6 +522,7 @@ flowchart LR
         CRY["AES cipher<br/>(OpenSSL)"]
         HTTPC["HTTP client"]
         WSS["HTTP / WebSocket server"]
+        HLSF[("HLS files<br/>temporary directory")]
     end
 
     subgraph RXA["Receiver — application layer AL: DTV middleware core (WP-AL)"]
@@ -534,7 +536,7 @@ flowchart LR
     end
 
     subgraph WEB["Browser — application (WP-APP)"]
-        PLY["mpegts.js<br/>software demux + MSE"] -->|"10 · decoded frames / samples"| VID["video element"]
+        PLY["hls.js<br/>TS demux + MSE"] -->|"10 · decoded frames / samples"| VID["video element"]
         OSD["OSD views<br/>info · list · EPG · dialogs"]
         VID -->|"11 · composition: OSD layers over video"| SCR(["Screen / speakers"])
         OSD --> SCR
@@ -549,8 +551,9 @@ flowchart LR
     DSC -->|"6 · payload (ICipher)"| CRY
     CRY -->|"7 · decrypted payload"| DSC
     DSC -->|"8 · decrypted A/V + clear PAT/PMT"| OUT
-    OUT -->|"9 · SPTS (IMediaSink) → TS over WebSocket"| WSS
-    WSS -->|"9 · binary frames"| PLY
+    OUT -->|"9 · HLS segments + playlist (IHlsStore)"| HLSF
+    HLSF -->|"9 · served by"| WSS
+    WSS -->|"9 · HLS over HTTP GET"| PLY
 
     MWS -.->|"M1 · services, EPG (HTTP/JSON)"| HTTPC
     HTTPC -.->|"M1 · IHttpClient"| SVC
@@ -577,15 +580,15 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 
 - **Application** — *what does the viewer see and press?* Presentation and user interaction only; no protocol, parsing or decryption logic.
 - **Application layer (AL) — DTV middleware** — *what does the viewer want?* (zap, rewind, unlock). All DTV logic: service model, session control, TS demultiplexing, PAT/PMT parsing, descrambling rules and key validation, building the output stream.
-- **Platform layer (PAL)** — *what does the programmer need?* Network input, HTTP, WebSocket, encryption primitives, time — wrapped behind team-defined interfaces, on top of the OS and common libraries.
+- **Platform layer (PAL)** — *what does the programmer need?* Network input, HTTP, WebSocket, file storage, encryption primitives, time — wrapped behind team-defined interfaces, on top of the OS and common libraries.
 
 | Layer (Lecture 5) | In this system | Built / reused / simulated | Work package |
 |---|---|---|---|
 | Application | Web application: views, presenters, model, keyboard handling (Model-View-Presenter, Section 2.2.6) | Built | **WP-APP** |
 | Middleware / AL — DTV middleware | DTV middleware core library `dtvcore` (AL-xx modules, Section 2.2.4) and the middleware process entry point | Built | **WP-AL** |
-| Middleware / AL — media player | mpegts.js in the browser, integrated by the application | Reused | (WP-APP integrates) |
+| Middleware / AL — media player | hls.js in the browser, integrated by the application | Reused | (WP-APP integrates) |
 | Middleware / AL — application runtime | Chromium in kiosk mode | Reused | — |
-| Platform / PAL — team adaptation layer | Platform interfaces (IF-INT-04) and their Linux implementations: IP input (UDP + RTP), HTTP client, HTTP/WebSocket server, AES cipher, clock, logger | Built | **WP-PAL** |
+| Platform / PAL — team adaptation layer | Platform interfaces (IF-INT-04) and their Linux implementations: IP input (UDP + RTP), HTTP client, HTTP/WebSocket server, HLS file store, AES cipher, clock, logger | Built | **WP-PAL** |
 | Platform / PAL — OS and common libraries | Linux sockets, C++17 threads, OpenSSL libcrypto, Mongoose, nlohmann/json; browser MSE | Reused | — |
 | Drivers / HAL | Linux network stack (loopback), GPU/audio drivers used by the browser | Reused, not modified; the operator network is simulated by loopback | — |
 
@@ -601,7 +604,7 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | WP-APP | Application model | APP-MOD | Application state: services, current service, mode (LIVE / ARCHIVE), position, EPG, volume, mute, open dialog. |
 | WP-APP | Key input router | APP-KEY | Maps keyboard events to remote-control commands depending on the active context (Section 1.5.1). |
 | WP-APP | Presenters | APP-PRS | One presenter per view; react to commands and model changes; call the middleware client. |
-| WP-APP | Views | APP-VIEW | Player view (video element + mpegts.js on IF-INT-02, volume and mute), info bar, service list, number entry, EPG grid, key dialog, volume/mute indicator, message toast. |
+| WP-APP | Views | APP-VIEW | Player view (video element + hls.js on IF-INT-02, volume and mute), info bar, service list, number entry, EPG grid, key dialog, volume/mute indicator, message toast. |
 | WP-AL (AL) | UI API facade | AL-API | Decodes IF-INT-01 commands received through `IUiChannel`, dispatches them to the AL modules, encodes responses and events. Owns the semantics of IF-INT-01. |
 | WP-AL | Service & metadata manager | AL-SVC | Client logic of the MW REST API (IF-EXT-03) over `IHttpClient`; service list and EPG cache; maps service numbers to service identifiers. |
 | WP-AL | Session controller | AL-SES | Playback session state machine; keeps the requested start point (D-14); cancels superseded requests; timeouts via `IClock`; emits events. |
@@ -609,11 +612,12 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | WP-AL | TS demux | AL-DMX | TS sync, continuity counter check, PID filtering, routing to the PSI parser and the descrambler. |
 | WP-AL | PSI parser | AL-PSI | Assembles and parses PAT and PMT sections, checks CRC-32, produces the stream description (PMT PID, PCR PID, A/V PIDs, stream types). |
 | WP-AL | Descrambler & key manager | AL-DSC | Detects scrambled packets, applies the D-04 rules (which bytes, IV, residual) using `ICipher`, validates the key (D-11), keeps keys per service for the session. |
-| WP-AL | Output SPTS builder | AL-OUT | Builds the output stream (clear PAT/PMT + decrypted A/V packets with scrambling bits cleared) and passes it to `IMediaSink`. |
+| WP-AL | HLS packager | AL-OUT | Builds the output stream (clear PAT/PMT + decrypted A/V packets with scrambling bits cleared), cuts it into HLS segments, maintains the live playlist and removes old segments, through `IHlsStore` (IF-INT-02). |
 | WP-AL | Process entry point | AL-MAIN | `main()` of the middleware process: reads the configuration, creates the PAL objects, injects them into the AL modules (composition root), starts and stops the process. |
 | WP-PAL (PAL) | IP input | PAL-NET | `INetReceiver`: UDP socket on the configured port, RTP header check (version, payload type 33), sequence-number loss counting, extraction of the TS packets, receive thread. |
 | WP-PAL | HTTP client | PAL-HTTP | `IHttpClient`: asynchronous HTTP GET/POST with JSON body, timeout, result callback (Mongoose). |
-| WP-PAL | HTTP / WebSocket server | PAL-WS | Serves the Web application files (IF-INT-03); `IUiChannel` on the control WebSocket; `IMediaSink` on the media WebSocket, with a bounded send queue (Mongoose). |
+| WP-PAL | HTTP / WebSocket server | PAL-WS | Serves the Web application files (IF-INT-03) and the HLS files of the HLS file store under `/hls/` (IF-INT-02); `IUiChannel` on the control WebSocket (Mongoose). |
+| WP-PAL | HLS file store | PAL-FS | `IHlsStore`: per-session directory in the temporary HLS directory; atomic file writes (write to a temporary name, then rename); file removal; directory removal at session end and clean-up at start-up. |
 | WP-PAL | AES cipher | PAL-CRY | `ICipher`: AES-128-CBC decryption of a byte block with a given key and IV (OpenSSL libcrypto). |
 | WP-PAL | Clock and timers | PAL-CLK | `IClock`: wall-clock UNIX time, monotonic time, one-shot timers. |
 | WP-PAL | Logger | PAL-LOG | `ILogger`: timestamped log lines with module tag and level, to console and file. |
@@ -631,9 +635,9 @@ These interfaces are the **contracts between layers and work packages**. Their e
 | ID | Interface | Provider → consumer (modules) | Contract between | Transport | Purpose | Default endpoint |
 |---|---|---|---|---|---|---|
 | IF-INT-01 | UI control API | AL-API ↔ APP-MWC (transport by PAL-WS) | **WP-AL ↔ WP-APP** | WebSocket, JSON text frames | UI → AL: commands (get services, get EPG, play live, play at time, set key, …), each with a request id. AL → UI: responses and asynchronous events (session state changes, key required, key rejected, no signal, …). | `ws://127.0.0.1:8090/ws/control` |
-| IF-INT-02 | UI media stream | AL-OUT → APP-VIEW / mpegts.js (transport by PAL-WS) | **WP-AL ↔ WP-APP** | WebSocket, binary frames | Decrypted SPTS of the current session only. | `ws://127.0.0.1:8090/ws/media` |
+| IF-INT-02 | UI media stream (HLS) | AL-OUT → APP-VIEW / hls.js (files through PAL-FS, served by PAL-WS) | **WP-AL ↔ WP-APP** | HLS (RFC 8216) over HTTP GET | Live playlist and TS segments of the decrypted SPTS of the current session only. | `http://127.0.0.1:8090/hls/<session>/index.m3u8` |
 | IF-INT-03 | Web application files | PAL-WS → browser | WP-PAL ↔ WP-APP | HTTP GET | Static HTML/CSS/JS of the Web application, from the same origin as IF-INT-01/02, so no CORS rules are needed. | `http://127.0.0.1:8090/` |
-| IF-INT-04 | Platform interfaces | PAL-xx → AL-xx | **WP-PAL ↔ WP-AL** | C++ abstract classes (headers in `middleware/include/pal/`) | `INetReceiver`, `IHttpClient`, `IUiChannel`, `IMediaSink`, `ICipher`, `IClock`, `ILogger`: operations, callbacks, threading rules, buffer ownership. | — |
+| IF-INT-04 | Platform interfaces | PAL-xx → AL-xx | **WP-PAL ↔ WP-AL** | C++ abstract classes (headers in `middleware/include/pal/`) | `INetReceiver`, `IHttpClient`, `IUiChannel`, `IHlsStore`, `ICipher`, `IClock`, `ILogger`: operations, callbacks, threading rules, buffer ownership. | — |
 | IF-EXT-03 | OTT MW REST API | SRV-MW → AL-SVC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP GET, JSON | Service list, service info (head-end control URL, archive window), EPG events for a time range. | `http://127.0.0.1:8080` |
 | IF-EXT-04 | Stream control API | SRV-HEC → AL-HEC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP POST, JSON | `start` (service, start point "live" or UNIX time, receiver UDP port) → session id; `stop` (session id). | `http://127.0.0.1:8081` |
 | IF-EXT-05 | Media stream | SRV-RTP → PAL-NET | within WP-PAL | RTP/UDP, RFC 2250 | MPEG-TS of one service, encrypted per D-04 for protected services. | UDP `127.0.0.1:5004` |
@@ -646,7 +650,7 @@ Ports are defaults; every component reads them from its configuration file. The 
 | Pattern | Problem it solves | Where it appears |
 |---|---|---|
 | Layered architecture (Lecture 5) | Separates what the viewer sees (application), what the viewer wants (AL) and what the platform provides (PAL), so that each layer can be developed and tested independently — by a different team member. | Section 2.2.3; one work package per layer. |
-| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | PAL-NET receive thread (producer) → queue → AL-DMX / AL-DSC / AL-OUT (consumer and producer) → PAL-WS media send queue → browser; on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
+| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | PAL-NET receive thread (producer) → queue → AL-DMX / AL-DSC / AL-OUT (consumer and producer) → HLS segments in the file store (bounded to 10 segments) → browser fetching them with hls.js (consumer); on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
 | State machine | Playback depends on the current state (starting, waiting for PSI, waiting for a key, validating a key, playing, no signal); an event that is valid in one state must be ignored or handled differently in another. | AL-SES session state machine; context handling in APP-KEY. Specified as a state diagram and a transition table in Section 4. |
 | Asynchronous command / event with "latest request wins" | Starting a stream takes time; the viewer may press a new key before the previous request completes. Acceptance of a command is separated from its completion; every session carries a generation number, and events or data of an older generation are discarded. | IF-INT-01 (request id → response, later events); AL-SES stops the previous session before starting a new one; APP-PRS ignores events of superseded requests. |
 | Adapter (platform abstraction / glue layer, Lectures 6–7) | Keeps the AL independent of Mongoose, OpenSSL and the socket API, so that it is portable and can be unit-tested with fakes while the PAL is still being written. | IF-INT-04: interfaces used by the AL, implementations in the PAL, fake implementations in the AL tests. |
@@ -660,9 +664,9 @@ The system is developed by three team members in parallel, **one layer per membe
 
 | Work package | Layer | Branch | Directories | Modules | Stand-ins for the neighboring layers during development |
 |---|---|---|---|---|---|
-| WP-APP | Application | `app` | `webui/` | APP-MWC, APP-MOD, APP-KEY, APP-PRS, APP-VIEW | Mock middleware script (`webui/mock/`) that serves the Web application files, answers IF-INT-01 commands with the JSON examples of Section 3, emits scripted events (including "key required" and "key rejected") and streams a clear TS file over IF-INT-02. |
-| WP-AL | Application layer — DTV middleware | `al` | `middleware/core/`, `middleware/main/` | AL-API, AL-SVC, AL-SES, AL-HEC, AL-DMX, AL-PSI, AL-DSC, AL-OUT, AL-MAIN | Fake PAL implementations in the unit tests (`middleware/core/tests/fakes/`): network input fed from a TS file, HTTP client returning the JSON examples of Section 3, scripted UI channel, media sink writing a TS file (checked with `ffprobe`), controllable clock, identity cipher. No network is needed to test the AL. |
-| WP-PAL | Platform layer + operator side | `pal` | `middleware/pal/`, `server/`, `content/` | PAL-NET, PAL-HTTP, PAL-WS, PAL-CRY, PAL-CLK, PAL-LOG, SRV-GEN, SRV-PKG, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs per adapter (`middleware/pal/tools/`), e.g. receive RTP → write TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
+| WP-APP | Application | `app` | `webui/` | APP-MWC, APP-MOD, APP-KEY, APP-PRS, APP-VIEW | Mock middleware script (`webui/mock/`) that serves the Web application files, answers IF-INT-01 commands with the JSON examples of Section 3, emits scripted events (including "key required" and "key rejected") and serves an HLS live stream made from a clear content file with `ffmpeg -re -i <file>.ts -c copy -f hls -hls_time 1 -hls_list_size 6 -hls_flags delete_segments` as IF-INT-02. |
+| WP-AL | Application layer — DTV middleware | `al` | `middleware/core/`, `middleware/main/` | AL-API, AL-SVC, AL-SES, AL-HEC, AL-DMX, AL-PSI, AL-DSC, AL-OUT, AL-MAIN | Fake PAL implementations in the unit tests (`middleware/core/tests/fakes/`): network input fed from a TS file, HTTP client returning the JSON examples of Section 3, scripted UI channel, HLS store writing to a temporary directory (playlist and segments checked with `ffprobe` / `ffplay`), controllable clock, identity cipher. No network is needed to test the AL. |
+| WP-PAL | Platform layer + operator side | `pal` | `middleware/pal/`, `server/`, `content/` | PAL-NET, PAL-HTTP, PAL-WS, PAL-FS, PAL-CRY, PAL-CLK, PAL-LOG, SRV-GEN, SRV-PKG, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs per adapter (`middleware/pal/tools/`), e.g. receive RTP → write TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
 
 Shared files, changed only on `main` and merged into all branches: `SPECIFICATION.md`, the platform interface headers `middleware/include/pal/` (IF-INT-04), the top-level `middleware/CMakeLists.txt`, `scripts/` (start/stop scripts), `README.md`.
 
@@ -700,7 +704,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 | python3-cryptography | Ubuntu 24.04 package | WP-PAL (SRV-PKG) | AES-128-CBC encryption |
 | FFmpeg / ffprobe | 6.1.1 | WP-PAL (SRV-GEN), all (verification) | Content generation; independent inspection of TS files |
 | Chromium | Ubuntu 24.04 package | WP-APP | Runtime of the Web application (kiosk mode) |
-| mpegts.js | 1.7.3, loaded from jsDelivr | WP-APP | TS demux in JavaScript and playback through MSE [HLR-21] |
+| hls.js | 1.7.4, loaded from jsDelivr | WP-APP | HLS playback (TS demux in JavaScript, playback through MSE) [HLR-21] |
 
 ### 2.3 Detailed functional requirements
 
@@ -746,10 +750,10 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-22 | The AL shall build the output stream of the current session as defined in IF-INT-02: one PAT and one PMT first, then the filtered packets (REQ-19) in the received order, with `transport_scrambling_control = '00'` and decrypted payloads, written as whole TS packets to `IMediaSink`. | AL | HLR-13; D-13 | T |
-| REQ-23 | Until the player connects for the session, the AL shall buffer the output up to 4 MiB; if the buffer is full, the oldest data shall be discarded, and the first data sent after the connection shall still start with the latest PAT and PMT. | AL | IF-INT-02 | T |
-| REQ-24 | The AL shall keep the timestamps of the output stream continuous across the loop boundary of the content (D-08): when the PCR of the PCR PID decreases, or increases by more than 1 s between two consecutive PCRs, the AL shall add a constant offset to all following PCR, PTS and DTS values (modulo 2³³) so that they continue from the last values before the jump. | AL | D-08; NFR-06 | T |
-| REQ-25 | When the APP receives `session_state` with `state: "playing"` for its current session, it shall create a new mpegts.js player on `ws://…/ws/media?session=<n>` attached to the `<video>` element, after destroying the previous player. | APP | D-13; IF-INT-02 | T |
+| REQ-22 | The AL shall build the output stream of the current session from the filtered packets (REQ-19) in the received order, with `transport_scrambling_control = '00'` and decrypted payloads, and package it as an HLS live stream as defined in IF-INT-02, through `IHlsStore`. | AL | HLR-13; D-13 | T |
+| REQ-23 | The AL shall cut segments as defined in IF-INT-02: every segment starts with one PAT, one PMT and a video PES that starts a key frame; a segment is closed at the first such key-frame start after at least 1 s of content (by PCR). A segment file shall be complete before it is listed in the playlist; the playlist shall list the last 6 segments; segment files no longer listed shall be removed so that at most 10 exist. | AL | IF-INT-02; HLR-17 | T |
+| REQ-24 | At the loop boundary of the content (D-08) — the PCR of the PCR PID decreases, or increases by more than 1 s between two consecutive PCRs — the AL shall close the current segment and mark the next segment in the playlist with `#EXT-X-DISCONTINUITY`, keeping `#EXT-X-DISCONTINUITY-SEQUENCE` correct when marked segments leave the playlist. Timestamps are not rewritten. | AL | D-08; D-13; NFR-06 | T |
+| REQ-25 | When the APP receives `session_state` with `state: "playing"` for its current session, it shall destroy the previous hls.js player and create a new one on `/hls/<n>/index.m3u8`, attached to the `<video>` element, starting with the first segment of the playlist (not at the live edge), so that playback begins at the requested start point. | APP | D-13; D-14; IF-INT-02 | T |
 | REQ-26 | The APP shall ignore every event whose `session` is not the session number returned by its last `play`. | APP | HLR-10; US-18 | T |
 
 #### 2.3.5 Info dialog
@@ -794,14 +798,14 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
 | REQ-44 | The AL shall decide that a stream is protected when the first packet of the video PID received after PMT parsing has `transport_scrambling_control ≠ '00'`, and clear otherwise. A clear stream goes to `playing` without key handling. | AL | US-17; D-04 | T |
-| REQ-45 | For a protected stream without a stored key for the service, the AL shall stop the head-end session, keep the start point (D-14) and set state `key_required` with `reason: "no_key"`. No content of the service shall be written to `IMediaSink`. | AL | US-14 AC1; D-14 | T |
+| REQ-45 | For a protected stream without a stored key for the service, the AL shall stop the head-end session, keep the start point (D-14) and set state `key_required` with `reason: "no_key"`. No HLS segment of the session shall be written. | AL | US-14 AC1; D-14 | T |
 | REQ-46 | On `key_required` of its current session, the APP shall open the key dialog automatically, titled "Enter the decryption key" for `no_key` and "Incorrect decryption key" for `key_rejected`. | APP | US-14 AC1; US-16 AC1, AC2 | T |
 | REQ-47 | The key dialog shall accept only `0–9` and `A–F` (letters case-insensitive), at most 32 characters, display each typed character masked (`•`) with a counter `n/32`, delete with `BACKSPACE`, cancel with `ESC`, and accept `ENTER` only when 32 characters have been typed; on `ENTER` the APP sends `set_key`. While the dialog is open, no playback shortcut is active. | APP | US-14 AC3 | T |
 | REQ-48 | When the key dialog is cancelled while the state is `key_required`, the APP shall show "Protected service – press K to enter the key" until the state changes; `K` shall open the key dialog for the current service at any time. | APP | US-14 AC2, AC5 | T |
 | REQ-49 | On `set_key`, the AL shall validate the format, store the key for the service in memory only, and — if the current session of that service is in `key_required` — restart it from the kept start point with the same `start` (D-14), entering `validating_key` once the stream is protected. | AL | US-14 AC4; US-16 AC3; D-14 | T |
 | REQ-50 | The AL shall decrypt every packet of the video and audio PIDs with `transport_scrambling_control = '10'` as defined in D-04: payload after the header and adaptation field, the largest multiple of 16 bytes decrypted with AES-128-CBC (key of the service, IV = 16 zero bytes) through `ICipher`, the remaining bytes unchanged. | AL | D-04; HLR-13 | T |
 | REQ-51 | In `validating_key`, the AL shall check the first 3 packets of the video PID with `payload_unit_start_indicator = 1`: the decrypted payload must begin with `00 00 01`. If all 3 pass, the key is accepted and the state becomes `playing`; if any fails, the key is rejected. The decision shall be made within 3 s after the first RTP data of the session. | AL | US-16 AC1; D-11 | T |
-| REQ-52 | During `validating_key`, the AL shall hold the decrypted output and pass it on only if the key is accepted, so that playback begins at the requested start point. | AL | D-14; US-16 AC3 | T |
+| REQ-52 | During `validating_key`, the AL shall hold the decrypted output in memory and write the first HLS segment only after the key is accepted, so that the first segment begins at the requested start point. | AL | D-14; US-16 AC3 | T |
 | REQ-53 | On key rejection, the AL shall discard the key of the service, discard the held output, stop the head-end session, keep the start point and set `key_required` with `reason: "key_rejected"`. | AL | US-16 AC2 | T |
 | REQ-54 | Keys shall be stored per `service_id`: a key stored for one service shall never be used for another. An accepted key shall be reused for later sessions of the same service in the same run of the middleware, without opening the key dialog. | AL | US-15 AC3; US-16 AC4 | T |
 | REQ-55 | The AL shall never write a key to disk or to a log; log lines that refer to a key shall show at most its first 4 characters followed by `…`. | AL | HLR-16 | I, T |
@@ -810,7 +814,7 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-56 | On every `play`, the AL shall end the current session before starting the new one: cancel its pending HTTP requests and timers, send `POST /stop` for its head-end session, close its media connection, discard its held and buffered data, and send `session_state` with `state: "stopped"` for it. After that, no other event of the old session shall be sent. | AL | HLR-10; US-18 | T |
+| REQ-56 | On every `play`, the AL shall end the current session before starting the new one: cancel its pending HTTP requests and timers, send `POST /stop` for its head-end session, discard its held data, remove its HLS directory (`IHlsStore::close_session`), and send `session_state` with `state: "stopped"` for it. After that, no other event of the old session shall be sent. | AL | HLR-10; US-18 | T |
 | REQ-57 | If the control WebSocket is closed, the APP shall reconnect every 2 s; after reconnecting it shall request `get_status` and `get_services` and restore its state from the answers. The AL session shall continue independently of the UI connection. | APP, AL | HLR-09 | T |
 | REQ-58 | Invalid input on any interface (malformed JSON, unknown commands, invalid TS packets, invalid PSI sections, invalid RTP datagrams) shall be rejected as defined in Section 3 and logged, and shall never terminate a component. | AL, PAL, SRV | HLR-09 | T |
 | REQ-59 | The AL shall log with a timestamp: every `play` (service, start), every head-end session (session id, SSRC, start time), PAT/PMT results, protection decision, key accepted / rejected, every state change and every error. | AL | US-22 AC3; HLR-23 | I |
@@ -861,12 +865,12 @@ Measured values refer to the demo laptop (D-12) with all components running.
 
 | ID | Category | Requirement | Verif. |
 |---|---|---|---|
-| NFR-01 | Performance — zap time | For a clear service, the time from sending `play` to the `session_state` `playing` event shall be at most 2 s, and the first picture shall be visible at most 4 s after the key press, in at least 19 of 20 consecutive zaps. | T |
-| NFR-02 | Performance — protected start | For a protected service with a stored correct key, the time from `play` to `playing` shall be at most 4 s. | T |
+| NFR-01 | Performance — zap time | For a clear service, the time from sending `play` to the `session_state` `playing` event shall be at most 3 s, and the first picture shall be visible at most 6 s after the key press, in at least 19 of 20 consecutive zaps. | T |
+| NFR-02 | Performance — protected start | For a protected service with a stored correct key, the time from `play` to `playing` shall be at most 4 s, and the first picture shall be visible at most 7 s after the key press. | T |
 | NFR-03 | Performance — incorrect key | An incorrect key shall be reported (`key_required`, `key_rejected`) at most 3 s after the first RTP data of the session. | T |
 | NFR-04 | Accuracy — rewind position | The burned-in time code of the first presented picture shall differ from the requested position (`T mod 600`) by at most 1 s. | T |
 | NFR-05 | Responsiveness | Every key press shall produce a visible reaction of the OSD (indicator, dialog, list, number) within 200 ms. | T |
-| NFR-06 | Stability | The system shall play live for 30 minutes (at least 3 loop boundaries of the content) without a component terminating, without an interruption of the picture longer than 1 s at a loop boundary, and with a growth of the middleware's resident memory of at most 20 MB. | T |
+| NFR-06 | Stability | The system shall play live for 30 minutes (at least 3 loop boundaries of the content) without a component terminating, without an interruption of the picture longer than 1 s at a loop boundary, with a growth of the middleware's resident memory of at most 20 MB, and with at most 10 segment files in the HLS directory at any time. | T |
 | NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. | T |
 | NFR-08 | Security of keys | Keys shall not appear in any log file, any file on disk, or any network traffic other than the local control WebSocket (IF-INT-01). Verified by inspection of the code, by searching the log files for the test keys, and by searching a loopback packet capture of a full demo run for the key bytes outside IF-INT-01. | I, A |
 | NFR-09 | Portability | The AL library `dtvcore` shall build and pass its unit tests without OpenSSL, Mongoose or socket headers, using only the C++17 standard library, nlohmann/json and the IF-INT-04 headers. | I, T |
@@ -1156,13 +1160,13 @@ Behavior that the UI may rely on:
 | `protected` | `true` when scrambled A/V packets were detected, `null` until known. |
 | `error` | Error object for state `error`, otherwise `null`. |
 
-| `state` | Meaning | Media on IF-INT-02 |
+| `state` | Meaning | HLS stream on IF-INT-02 |
 |---|---|---|
 | `starting` | Start request sent to the head-end. | no |
 | `waiting_stream` | Head-end accepted; waiting for RTP data and for PAT/PMT. | no |
 | `key_required` | Stream is protected and no key is stored (`reason: "no_key"`) or the stored key was rejected (`reason: "key_rejected"`). The head-end session is stopped; the start point is kept (D-14). | no |
 | `validating_key` | A key is stored; the first PES starts are being checked (D-11). | no |
-| `playing` | Content is decrypted (if protected) and delivered. | **yes** |
+| `playing` | Content is decrypted (if protected); the first HLS segment of the session is listed in its playlist. | **yes** |
 | `no_signal` | No RTP data within 5 s after the head-end accepted the request (`reason: "no_data_at_start"`), or no RTP data for 3 s while `playing` (`reason: "data_lost"`). The session continues and returns to `playing` when data arrives again (US-05, US-19). | no |
 | `stopped` | Session ended by `stop` or replaced by a newer `play`. | no |
 | `error` | Session failed (e.g. `HEADEND_UNREACHABLE`, `OUT_OF_ARCHIVE`); see `error`. | no |
@@ -1192,22 +1196,26 @@ Behavior that the UI may rely on:
 { "type": "event", "name": "mw_status", "data": { "reachable": false } }
 ```
 
-### 3.7 IF-INT-02 — UI media stream (WebSocket, binary)
+### 3.7 IF-INT-02 — UI media stream (HLS)
 
-Provider: AL-OUT (WP-AL) through PAL-WS. Consumer: APP-VIEW with mpegts.js (WP-APP). URL: `ws://127.0.0.1:8090/ws/media?session=<n>`.
+Provider: AL-OUT (WP-AL), which writes the files through `IHlsStore` (PAL-FS); PAL-WS serves them. Consumer: APP-VIEW with hls.js (WP-APP). Standard: HTTP Live Streaming, RFC 8216.
 
 | Item | Specification |
 |---|---|
-| When to connect | The UI opens a new media connection (and a new mpegts.js player) when it receives `session_state` with `state: "playing"` for its current session, and closes the old one. |
-| Content | Binary frames, each containing a whole number of TS packets (multiple of 188 bytes, at most 64 KiB). |
-| Stream | SPTS of session `n` only: PAT, PMT, video and audio PIDs; continuity counters preserved; `transport_scrambling_control = '00'` on all packets; payloads decrypted; PCR, PTS and DTS continuous across loop boundaries of the content (REQ-24). |
-| Start | The first frame starts with one PAT and one PMT packet. Data produced between the `playing` state and the connection is buffered by the AL (at most 4 MiB) and sent first. |
-| End | The AL closes the connection when session `n` leaves the `playing` state for `stopped`, `key_required` or `error`, or when a newer session starts. A connection for a session that is not current is closed immediately. |
+| URLs | Playlist: `http://127.0.0.1:8090/hls/<session>/index.m3u8`; segments: `http://127.0.0.1:8090/hls/<session>/seg-<sequence>.ts`, where `<sequence>` starts at 0 for every session. Same origin as the Web application, so no CORS rules are needed. |
+| HTTP | `Content-Type: application/vnd.apple.mpegurl` for the playlist and `video/mp2t` for segments; `Cache-Control: no-cache` for the playlist. Unknown session or file: `404`. |
+| Playlist | Live media playlist, `#EXT-X-VERSION:3`, `#EXT-X-TARGETDURATION:2`, `#EXT-X-MEDIA-SEQUENCE:<sequence of the first listed segment>`, `#EXT-X-DISCONTINUITY-SEQUENCE` when needed, one `#EXTINF:<duration with 3 decimals>,` per segment, at most the last 6 segments, no `#EXT-X-ENDLIST`. The playlist file is replaced atomically. |
+| Segments | MPEG-TS of session `n` only: PAT, PMT, video and audio PIDs; `transport_scrambling_control = '00'` on all packets; payloads decrypted. Every segment starts with one PAT, one PMT and the start of a video key frame, and contains about 1 s of content (at most 2 s). A segment is listed only after its file is complete. |
+| Loop boundary | The first segment after the content loop boundary is preceded by `#EXT-X-DISCONTINUITY` in the playlist (REQ-24); timestamps inside the segments are not changed. |
+| Example | `#EXTM3U` / `#EXT-X-VERSION:3` / `#EXT-X-TARGETDURATION:2` / `#EXT-X-MEDIA-SEQUENCE:41` / `#EXTINF:1.000,` / `seg-41.ts` / `#EXTINF:1.000,` / `seg-42.ts` / `#EXT-X-DISCONTINUITY` / `#EXTINF:1.000,` / `seg-43.ts` (one line each). |
+| When to load | The playlist of session `n` exists from the moment `session_state` reports `state: "playing"` for session `n` (the first segment is already listed). The UI creates a new hls.js player at that moment and destroys the previous one. |
+| Start position | The player starts with the **first** segment listed in the playlist, not at the live edge (hls.js configuration `startPosition: 0`), so that playback begins at the requested start point (D-14, NFR-04). |
+| End | When session `n` leaves `playing` for `stopped`, `key_required` or `error`, or a newer session starts, the AL removes the directory of session `n`; requests for it then return `404`. |
 | Volume | Not part of the stream: volume and mute are set on the `<video>` element by the UI (D-13). |
 
 ### 3.8 IF-INT-03 — Web application files
 
-Provider: PAL-WS (WP-PAL). Consumer: browser (WP-APP). `GET http://127.0.0.1:8090/<path>` serves the files of the directory `webui/` (configured as `webui_dir`); `/` serves `index.html`. The Web application loads mpegts.js from `https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js` (HLR-21).
+Provider: PAL-WS (WP-PAL). Consumer: browser (WP-APP). `GET http://127.0.0.1:8090/<path>` serves the files of the directory `webui/` (configured as `webui_dir`); `/` serves `index.html`. Paths under `/hls/` are reserved for IF-INT-02. The Web application loads hls.js from `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js` (HLR-21).
 
 ### 3.9 IF-INT-04 — Platform interfaces (C++ headers)
 
@@ -1296,21 +1304,23 @@ public:
     virtual void broadcast(const std::string& text) = 0;              // to all connected clients
 };
 
-// ---------------------------------------------------------------- UI media sink (IF-INT-02 transport)
-class IMediaSink {
+// ---------------------------------------------------------------- HLS file store (IF-INT-02 storage)
+// Files of one session live in <hls_dir>/<session>/ and are served by the PAL under /hls/<session>/.
+class IHlsStore {
 public:
     using SessionId = std::uint64_t;
-    // Called when a player connects to /ws/media?session=<n> (connected = true) or disconnects.
-    using ConnectionCallback = std::function<void(SessionId session, bool connected)>;
 
-    virtual ~IMediaSink() = default;
-    // Must be called before Platform::start().
-    virtual void set_handler(ConnectionCallback on_connection) = 0;
-    // Queues len bytes (multiple of 188) for the player connected for `session`.
-    // Returns false if no player is connected for `session` or the send queue is full (data dropped).
-    virtual bool write(SessionId session, const std::uint8_t* data, std::size_t len) = 0;
-    // Closes the player connection of `session`, if any.
-    virtual void close(SessionId session) = 0;
+    virtual ~IHlsStore() = default;
+    // Creates the empty directory of `session`. Returns false on a file-system error.
+    virtual bool open_session(SessionId session) = 0;
+    // Writes a complete file atomically (temporary name, then rename), replacing an existing one.
+    // `name` is a plain file name such as "seg-17.ts" or "index.m3u8". Returns false on error.
+    virtual bool write_file(SessionId session, const std::string& name,
+                            const std::uint8_t* data, std::size_t len) = 0;
+    // Removes one file of `session`; removing a missing file is not an error.
+    virtual bool remove_file(SessionId session, const std::string& name) = 0;
+    // Removes the directory of `session` with all its files.
+    virtual void close_session(SessionId session) = 0;
 };
 
 // ---------------------------------------------------------------- Cipher
@@ -1351,7 +1361,7 @@ struct PlatformConfig {
     std::uint16_t ui_http_port = 8090;   // IF-INT-01/02/03
     std::string webui_dir = "webui";     // IF-INT-03
     std::string log_file = "logs/middleware.log";
-    std::size_t media_queue_bytes = 4 * 1024 * 1024;  // per media connection
+    std::string hls_dir = "/tmp/m15-hls";  // IF-INT-02; served under /hls/, emptied at start()
 };
 
 class Platform {
@@ -1360,11 +1370,12 @@ public:
     virtual INetReceiver& net() = 0;
     virtual IHttpClient& http() = 0;
     virtual IUiChannel& ui() = 0;
-    virtual IMediaSink& media() = 0;
+    virtual IHlsStore& hls() = 0;
     virtual ICipher& cipher() = 0;
     virtual IClock& clock() = 0;
     virtual ILogger& logger() = 0;
-    // Starts the event-loop thread and the HTTP/WebSocket server. Returns false if the port cannot be opened.
+    // Empties hls_dir, starts the event-loop thread and the HTTP/WebSocket server.
+    // Returns false if the port cannot be opened or hls_dir cannot be created.
     virtual bool start() = 0;
     // Stops all PAL threads; no callback is called after it returns.
     virtual void stop() = 0;

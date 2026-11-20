@@ -1,6 +1,6 @@
 # Handover — M15 specification work
 
-**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code).
+**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code). **Updated:** 2026-11-20 — browser playback switched to HLS (D-13).
 **For:** the next team member (Lazar or Smilja) and their coding agent, to continue writing `SPECIFICATION.md` without access to the previous conversation.
 **Read first:** this file completely, then `SPECIFICATION.md` completely. The specification is the source of truth. This file explains how it was made, which rules apply and what comes next.
 
@@ -71,6 +71,7 @@ These rules shape the whole specification:
 | Does the viewer type the key, or does the receiver get it from the OTT MW server? | Either is acceptable → the team chose: **the viewer types it** in a dialog. | D-03 |
 | One fixed key, or rotating control words via ECM/EMM? | **The simplest variant: one fixed key.** | D-04 |
 | After an incorrect key followed by a correct one, where does playback start? | **It continues from where it was started** (the originally selected archive time T; live stays live). | D-14, REQ-49, REQ-52 |
+| (Suggestion from the professor, 2026-11-20) How should the DTV middleware deliver video to the Web application? | **Use HLS**; no separate server is expected. → The middleware writes HLS segments + playlist to a temporary directory, served by its existing HTTP server; the browser uses hls.js. | D-13, IF-INT-02, REQ-22 – REQ-25 |
 
 ## 6. Team decisions and working preferences
 
@@ -81,10 +82,10 @@ These were decided explicitly by the team during the session. Keep them unless t
 3. **Division of work by course layers is mandatory:** one member per layer — **WP-APP** (application, Web UI), **WP-AL** (application layer, DTV middleware core, C++17), **WP-PAL** (platform layer adapters in C++ + the operator side in Python: head-end, OTT MW REST server, packaging tool, content generator). The three layers are implemented **in parallel on separate Git branches** (`app`, `al`, `pal`). Contracts between layers (Section 3) must be frozen on `main` before coding.
 4. **Who owns which layer is not decided yet.** The specification stays neutral: no names per work package.
 5. **For now only the specification is written.** No source code, no repository skeleton, no other files until the team says so.
-6. Internet is available at the defense, so mpegts.js is loaded from a CDN with a pinned version (HLR-21).
+6. Internet is available at the defense, so hls.js is loaded from a CDN with a pinned version (HLR-21).
 7. Work step by step: one section (or subsection) per step, then a short summary to the team member for review.
 
-## 7. Current state of `SPECIFICATION.md` (version 0.9)
+## 7. Current state of `SPECIFICATION.md` (version 0.10)
 
 | Section | Status | Content |
 |---|---|---|
@@ -95,7 +96,7 @@ These were decided explicitly by the team during the session. Keep them unless t
 | 2.3 Functional requirements | done | REQ-01 … REQ-66, each with layer (APP / AL / PAL / SRV), source and verification method; traceability HLR → REQ. |
 | 2.4 Non-functional requirements | done | NFR-01 … NFR-17 (measurable). |
 | 2.5 Extensions | done | EXT-01 … EXT-11 (not mandatory). |
-| 3. Interface specification | done, **to be reviewed and frozen at I-1 (2026-11-21)** | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 media WebSocket; IF-INT-03 web files; IF-INT-04 C++ platform header (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
+| 3. Interface specification | done, **to be reviewed and frozen at I-1 (2026-11-21)** | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ platform header (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
 | 4. Design | **next** | See §8. |
 | 5. Verification plan | after Section 4 | See §8. |
 
@@ -115,15 +116,16 @@ These were decided explicitly by the team during the session. Keep them unless t
 | D-10 | Protected services need the key in live and in the archive. |
 | D-11 | Incorrect key: detected (decrypted PES must start with `00 00 01`), message shown, nothing passed to the player. |
 | D-12 | One Ubuntu 24.04 laptop, loopback only, Chromium kiosk, HDMI. |
-| D-13 | AL sends the decrypted SPTS over WebSocket; the browser plays it with mpegts.js 1.7.3 (MSE). |
+| D-13 | AL packages the decrypted SPTS as HLS (≈1 s TS segments, sliding-window `index.m3u8`, `#EXT-X-DISCONTINUITY` at the loop boundary) in a temporary directory; the middleware's existing HTTP server serves it under `/hls/<session>/`; the browser plays it with hls.js 1.7.4 (MSE). No extra server. |
 | D-14 | After key entry, playback restarts from the originally requested start point. |
 
-Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL only), Mongoose 7.23 (PAL only), nlohmann/json 3.12.0, Python 3.12 (stdlib + `python3-cryptography`), FFmpeg 6.1.1, Chromium, mpegts.js 1.7.3 from jsDelivr. Default ports: MW REST 8080, head-end control 8081, RTP UDP 5004, middleware HTTP/WebSocket 8090.
+Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL only), Mongoose 7.23 (PAL only), nlohmann/json 3.12.0, Python 3.12 (stdlib + `python3-cryptography`), FFmpeg 6.1.1, Chromium, hls.js 1.7.4 from jsDelivr. Default ports: MW REST 8080, head-end control 8081, RTP UDP 5004, middleware HTTP/WebSocket 8090 (Web application files, control WebSocket `/ws/control`, HLS under `/hls/`). HLS files in `/tmp/m15-hls`.
 
 ### Known risks and points to watch
 
-- **Loop boundary of the content (REQ-24):** when the 10-minute file wraps, PCR/PTS/DTS jump back by 600 s. MSE needs monotonic timestamps, so the AL rewrites the timestamps with an offset after decryption. This must be tested early (NFR-06); the behavior of mpegts.js without it is not verified.
-- **Browser playback path** (WebSocket → mpegts.js → MSE) is the main integration risk; milestone I-2 exists to prove it early.
+- **Loop boundary of the content (REQ-24):** when the 10-minute file wraps, PCR/PTS/DTS jump back by 600 s. The AL closes the segment and marks the next one with `#EXT-X-DISCONTINUITY`; hls.js is expected to handle this. Test early (NFR-06).
+- **HLS start position and latency:** playback must begin at the first segment of the playlist (hls.js `startPosition: 0`), otherwise the rewind would not start exactly at T (NFR-04, D-14). Verify this hls.js behavior at I-2. Zap time with HLS is longer than with a direct stream (NFR-01 allows 6 s to first picture).
+- **Browser playback path** (HLS files → hls.js → MSE) is the main integration risk; milestone I-2 exists to prove it early.
 - **WP-PAL is the largest work package** (C++ adapters + whole Python operator side). If it proves too large, SRV-PKG and SRV-GEN can move to WP-AL (the AL owner knows D-04 in detail anyway). This would be a change of Section 2.2.4 / 2.2.7.
 - Section 3 has not yet been reviewed by the whole team; it must be agreed before 2026-11-21 (I-1).
 
@@ -137,10 +139,10 @@ Planned subsections (adjust if needed, but cover everything the guidelines requi
 2. **4.2 AL internal design:** threading model (proposal: PAL callbacks only post tasks to one AL worker thread with a task queue, so AL state needs no locks), main data structures (service list, session object with generation number, kept start point, key store), module collaboration.
 3. **4.3 AL-SES session state machine:** states exactly as in IF-INT-01 §3.6.3 (`idle`, `starting`, `waiting_stream`, `key_required`, `validating_key`, `playing`, `no_signal`, `stopped`, `error`); events (play, HTTP ok / error, first data, PAT/PMT parsed, protection decided, set_key, key accepted / rejected, 5 s and 3 s timers, data resumed, stop); **state diagram (Mermaid `stateDiagram-v2`) + full transition table** (state × event → action, next state, emitted event).
 4. **4.4 Application design:** MVP structure (APP-MOD, APP-PRS, APP-VIEW, APP-KEY, APP-MWC), UI contexts (full-screen playback, number entry, service list, EPG, key dialog, info overlay) as a state diagram/transition table matching the key bindings of 1.5.1, how the model reacts to `session_state`, `stream_info`, `mw_status`; the timers (300 ms zap debounce, 500 ms seek accumulation, 2 s number commit, 5 s info, 2 s volume indicator).
-5. **4.5 Producer–consumer and buffers:** threads (PAL receive thread, PAL event loop, AL worker, head-end session threads), queues with capacity and overflow policy (RX → AL queue, validation hold buffer, 4 MiB media buffer, PAL media send queue), who allocates and who frees each buffer.
+5. **4.5 Producer–consumer and buffers:** threads (PAL receive thread, PAL event loop, AL worker, head-end session threads), queues with capacity and overflow policy (RX → AL queue, validation hold buffer, HLS segment window of at most 10 files), who allocates and who frees each buffer.
 6. **4.6 UML sequence diagrams** (Mermaid `sequenceDiagram`). Implementation level (real command / event / function names from Section 3) for APP and AL; demonstration level for PAL and operator side. At least:
    - start-up: service list (+ MW not reachable variant),
-   - live zap of a clear service (play → /start → RTP → PAT/PMT → stream_info → playing → media WebSocket → mpegts.js),
+   - live zap of a clear service (play → /start → RTP → PAT/PMT → stream_info → first HLS segment → playing → hls.js loads `/hls/<n>/index.m3u8`),
    - archive from the EPG (get_epg → ENTER on an available event → play with T),
    - protected service: no key → key dialog → **incorrect key → key_rejected → correct key → playback from the same T** (the core M15 scenario),
    - rapid zapping / "latest request wins" (old session stopped, late events ignored),
