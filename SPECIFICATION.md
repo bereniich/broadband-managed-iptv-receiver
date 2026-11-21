@@ -9,7 +9,7 @@
 | Team | Lazar Zubović (RA 13/2023), Smilja Krulj (RA 145/2023), Ivan Berenić (RA 59/2023) |
 | Implementation variant | Linux + Web |
 | Defense | 2026-12-03 |
-| Document version | 0.10 (draft): browser playback changed to HLS + hls.js (D-13, IF-INT-02, IF-INT-04, REQ-22 – REQ-25) |
+| Document version | 0.11 (draft): layering aligned with the lecture (DTV SDK in PAL; tuner, SW demux, descrambler in HAL); head-end keepalive for a stopped receiver |
 | Status | Sections 1, 2, 3 — done (Section 3 to be frozen at I-1); Section 4 (design) and Section 5 (verification plan) — next |
 
 ### Document conventions
@@ -189,7 +189,7 @@ In the key dialog all letter and digit keys are treated as text input; the playb
 | Packaging tool: encryption of content files | ✔ | Crypto library | — |
 | Streaming head-end: archive timeline, time-based start, RTP packetization, HTTP stream control | ✔ | Socket API, HTTP server library | The "broadcast" itself: a looping content file mapped to wall-clock time stands in for a live channel and its archive [D-08]. |
 | OTT MW REST server: services, service info, EPG | ✔ | HTTP server library | Operator back-end (JSON files instead of a database). |
-| Native DTV middleware: RTP reception, TS synchronization, PAT/PMT parsing, PID filtering, protection detection, decryption, key validation, session state, API to the UI | ✔ | Socket API, crypto library (OpenSSL), HTTP/WebSocket library | — |
+| Native receiver process: DTV middleware (AL: PAT/PMT parsing, protection detection, key management and validation, session state, HLS packaging, API to the UI), DTV SDK (PAL) and software tuner, demultiplexer and descrambler (HAL: RTP reception, TS synchronization, PID filtering, decryption) | ✔ | Socket API, crypto library (OpenSSL), HTTP/WebSocket library | The tuner, demultiplexer and descrambler hardware blocks of a DTV receiver are implemented in software (HAL). |
 | Web application (UI): zapper, service list, info, EPG, archive navigation, key dialog, volume, keyboard handling | ✔ | Browser, HTML/CSS/JS | Remote control is replaced by the PC keyboard. |
 | Video/audio decoding and rendering | — | Browser media stack (Media Source Extensions) and the hls.js player library [D-13] | — |
 | Managed network | — | Loopback interface | One machine instead of an operator network [D-12]. |
@@ -232,7 +232,7 @@ Where the task does not prescribe a solution, the team fixed the variant that is
 | D-03 | Source of the decryption key | **The viewer enters the key** in the key dialog: exactly 32 hexadecimal characters (`0–9`, `A–F`), representing a 128-bit key. The key is kept by the middleware in memory, per service, for the running session; it is not written to disk. | Correct and incorrect key are demonstrated simply by typing two different keys; no authorization logic on the server; uses "letters for dialogs" from the task. |
 | D-04 | Protection scheme | **One fixed AES-128 key per protected service**, the same for live and archive, never changing. **Encrypted:** the payload of TS packets carrying the audio and video PIDs. **Mode:** AES-128-CBC, IV = 16 zero bytes, restarted for every TS packet; the largest multiple of 16 bytes from the payload start is encrypted, the remaining bytes (fewer than 16) stay in the clear. **In the clear:** TS headers, adaptation fields (including PCR), PAT and PMT. **Signalling:** encrypted packets have `transport_scrambling_control = '10'`, all others `'00'`. The receiver detects protection from these bits; no CA descriptor, ECM or EMM is used. Content files are encrypted once, offline, by the team's packaging tool. | Fixed key as confirmed by course staff; per-packet encryption with the header in the clear follows the scrambling model of Lecture 3 (headers and PSI readable, payload protected); offline encryption keeps the head-end a plain file streamer. |
 | D-05 | Unicast vs multicast | **Unicast** RTP over UDP to the requesting receiver; no IP multicast, no IGMP. RTP payload: MPEG-2 TS as in RFC 2250 (payload type 33), **7 TS packets (1316 bytes) per RTP packet**. | "On client request" delivery from the task is naturally one-to-one; unicast works on loopback without any network configuration. |
-| D-06 | Stream control protocol | **HTTP POST with JSON** to the head-end: *start* (service, start time or "live", receiver UDP port) returns a session identifier; *stop* (session identifier) ends the stream. Starting a new session for the same receiver stops the previous one. | Same technology as the MW REST API, so one HTTP client is used in the receiver; simpler than implementing an RTSP server and client. |
+| D-06 | Stream control protocol | **HTTP POST with JSON** to the head-end: *start* (service, start time or "live", receiver UDP port, RTP SSRC chosen by the receiver) returns a session identifier; *keepalive* (session identifier) every 5 s keeps the session alive; *stop* (session identifier) ends the stream. Starting a new session for the same receiver stops the previous one; a session without keepalive for 15 s is stopped by the head-end, so a receiver that stops or crashes does not leave a stream running. | Same technology as the MW REST API, so one HTTP client is used in the receiver; simpler than implementing an RTSP server and client. |
 | D-07 | Rewind step | **30 s** per key press (see D-02). | Large enough to see a visible jump in the demo, small enough to re-watch a moment. |
 | D-08 | Archive depth and timeline | **Archive window: the last 2 hours.** Each service's content file is played in an endless loop on a timeline bound to wall-clock time: playback position = (UNIX time in seconds) mod (file duration). The EPG is generated on the same cycle, so the program shown at time T in the EPG is exactly the content streamed for time T. | Any moment of the last 2 hours exists without storing 2 hours of content; the server can be restarted without losing the archive; EPG and content always match. |
 | D-09 | Test content | **4 services**, each a separate single-program transport stream (SPTS) generated with FFmpeg: H.264 video 1280×720, 25 fps; AAC-LC stereo audio, 48 kHz; **10-minute file = 2 programs of 5 minutes**. Each picture shows burned-in text with the service name, program title and the content time code, so the correct service and position can be verified visually. Services 1 and 2 are clear; services 3 and 4 are protected with two different keys. | Codecs playable in the browser via MSE; known content makes the expected result of every test exact; two protected services with different keys show that a key is bound to its service. |
@@ -361,6 +361,7 @@ As a viewer, I want my latest action to win when I press keys before the previou
 As a viewer, I want to be informed if the stream stops or a server becomes unavailable, so that I know the problem is not on my side.
 - AC1: Given RTP data stops arriving during playback, then "No signal" is shown after 3 s and playback resumes automatically when data returns.
 - AC2: Given the OTT MW server becomes unavailable after start-up, then the already loaded service list remains usable and the EPG shows "No information".
+- AC3: Given the head-end stops during playback, then "No signal" is shown; after the head-end is started again, selecting a service plays it without restarting the receiver.
 
 #### Epic E7 — Operator and demonstrator
 
@@ -374,6 +375,7 @@ As an operator, I want the head-end to stream any service from a requested time 
 - AC1: Given a start request with a time inside the archive window, then the head-end sends MPEG-TS over RTP starting at the content position that corresponds to that time.
 - AC2: For protected services, audio/video payloads are encrypted with the service key (D-04), while PAT and PMT remain readable.
 - AC3: Given a start time outside the archive window or an unknown service, then the head-end rejects the request with an error response and sends no stream.
+- AC4: Given the receiver stops or crashes during a session, then the head-end stops sending that stream within 15 s.
 
 **US-22 — Repeatable demonstration** [GUIDELINES]
 As a demonstrator, I want to start the whole system with a documented procedure and a known test data set, so that the defense demo is repeatable.
@@ -459,6 +461,7 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 | HLR-22 | The system shall use the standards and formats defined in Section 2.2 (MPEG-TS, PSI, RTP, H.264, AAC, AES-128, HTTP/JSON, WebSocket, HLS). | [TASK]; D-04, D-05, D-09, D-13 | I, A |
 | HLR-23 | The complete system shall be started by one documented script and stopped by one documented script; all components shall write logs that serve as verification evidence. | US-22; [GUIDELINES] | D, I |
 | HLR-24 | The source code, specification and test data shall be kept in one Git repository, with run instructions in the repository. | [TASK]; [GUIDELINES] | I |
+| HLR-25 | The receiver shall contain, as separate software blocks in the layers of Section 2.2.3, a DTV middleware (AL), a DTV SDK (PAL) and a software demultiplexer (HAL), with a tuner block as the input of the transport stream. | Course staff (lecture: mandatory blocks DTV MW, DTV SDK, SW DMX) | I |
 
 #### 2.1.4 Traceability: high-level requirements → user stories
 
@@ -475,7 +478,7 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 | US-18 | HLR-10 |
 | US-19 | HLR-09 |
 | US-20, US-21 | HLR-14, HLR-15, HLR-16 |
-| US-22 | HLR-20, HLR-21, HLR-23, HLR-24 |
+| US-22 | HLR-20, HLR-21, HLR-23, HLR-24, HLR-25 |
 
 ### 2.2 Technical postulates
 
@@ -501,13 +504,13 @@ This section fixes the technical foundations of the system. The work is divided 
 
 #### 2.2.2 Signal path
 
-The system implements the **managed IPTV, unicast, on-request** signal path of Lecture 4, with a software reception chain on the receiver side as in the Internet TV consumption path of Lecture 2 (Stream RX → decryption → software demux → decoders → composition). There is no hardware front-end, demux or decoder under the team's control: reception runs over the loopback network, demultiplexing and decryption run in the native middleware process (application layer on top of the platform layer), and decoding and composition run in the browser.
+The system implements the **managed IPTV, unicast, on-request** signal path of Lecture 4, with a software reception chain on the receiver side as in the Internet TV consumption path of Lecture 2 (Stream RX → decryption → software demux → decoders → composition). The receiver has no DTV hardware, so the hardware blocks of Lecture 2 — tuner, demultiplexer, descrambler — are implemented **in software in the HAL** and accessed by the DTV middleware only through the team's **DTV SDK** in the PAL, in the same way as Nexus or the Android Tuner SDK of Lecture 6. Decoding and composition run in the browser.
 
 Three kinds of paths are distinguished:
 
-- **Media path** (content data) — solid arrows, numbered 1–11 in the order in which content data moves for one playback,
-- **Metadata path** (service list, EPG, PSI) — dotted arrows, M1–M5,
-- **Control path** (commands and events) — thick arrows, C1–C6.
+- **Media path** (content data) — solid arrows, numbered 1–12 in the order in which content data moves for one playback,
+- **Metadata path** (service list, EPG, PSI) — dotted arrows, M1–M4,
+- **Control path** (commands and events) — thick arrows, C1–C9.
 
 ```mermaid
 flowchart LR
@@ -517,84 +520,94 @@ flowchart LR
         MWS["OTT MW REST server<br/>services · EPG"]
     end
 
-    subgraph RXP["Receiver — platform layer PAL (WP-PAL)"]
-        NET["IP input<br/>UDP + RTP"]
-        CRY["AES cipher<br/>(OpenSSL)"]
+    subgraph HAL["Receiver — HAL: software tuner, demux, descrambler (WP-PAL)"]
+        TUN["IP tuner<br/>UDP + RTP · lock status"]
+        DMX["SW demux<br/>sync · PID filters · sections"]
+        DSC["Descrambler<br/>AES-128-CBC per D-04"]
+    end
+
+    subgraph PAL["Receiver — PAL: OS + DTV SDK (WP-PAL)"]
+        SDK["DTV SDK<br/>ITuner · IDemux"]
         HTTPC["HTTP client"]
         WSS["HTTP / WebSocket server"]
         HLSF[("HLS files<br/>temporary directory")]
     end
 
-    subgraph RXA["Receiver — application layer AL: DTV middleware core (WP-AL)"]
-        DMX["TS demux<br/>sync · PID filter"]
+    subgraph AL["Receiver — AL: DTV middleware (WP-AL)"]
         PSI["PSI parser<br/>PAT · PMT"]
-        DSC["Descrambler +<br/>key validator"]
-        OUT["Output SPTS builder"]
+        KEY["Key manager +<br/>key validator"]
+        OUT["HLS packager<br/>(HLS server)"]
         SES["Session controller<br/>state machine"]
         SVC["Service & metadata<br/>manager"]
         FAC["UI API facade"]
     end
 
     subgraph WEB["Browser — application (WP-APP)"]
-        PLY["hls.js<br/>TS demux + MSE"] -->|"10 · decoded frames / samples"| VID["video element"]
+        PLY["hls.js<br/>TS demux + MSE"] -->|"11 · decoded frames / samples"| VID["video element"]
         OSD["OSD views<br/>info · list · EPG · dialogs"]
-        VID -->|"11 · composition: OSD layers over video"| SCR(["Screen / speakers"])
+        VID -->|"12 · composition: OSD layers over video"| SCR(["Screen / speakers"])
         OSD --> SCR
         PRES["Presenters + key input router"]
     end
 
-    HE -->|"3 · MPEG-TS over RTP / UDP"| NET
-    NET -->|"4 · TS packets (INetReceiver)"| DMX
-    DMX -.->|"M3 · PAT/PMT sections"| PSI
-    PSI -.->|"M4 · PIDs, stream types"| DMX
-    DMX -->|"5 · A/V packets (encrypted)"| DSC
-    DSC -->|"6 · payload (ICipher)"| CRY
-    CRY -->|"7 · decrypted payload"| DSC
-    DSC -->|"8 · decrypted A/V + clear PAT/PMT"| OUT
+    HE -->|"3 · MPEG-TS over RTP / UDP"| TUN
+    TUN -->|"4 · TS packets"| DMX
+    DMX -->|"5 · A/V packets (scrambled)"| DSC
+    DSC -->|"6 · A/V packets (decrypted)"| SDK
+    SDK -->|"7 · TS filter data (IDemux)"| KEY
+    KEY -->|"8 · validated A/V packets"| OUT
     OUT -->|"9 · HLS segments + playlist (IHlsStore)"| HLSF
-    HLSF -->|"9 · served by"| WSS
-    WSS -->|"9 · HLS over HTTP GET"| PLY
+    HLSF -->|"10 · served by"| WSS
+    WSS -->|"10 · HLS over HTTP GET"| PLY
 
     MWS -.->|"M1 · services, EPG (HTTP/JSON)"| HTTPC
     HTTPC -.->|"M1 · IHttpClient"| SVC
     SVC -.->|"M2 · services, EPG, program info"| FAC
-    PSI -.->|"M5 · stream info"| SES
     FAC -.->|"M2 · metadata messages (IUiChannel)"| WSS
     WSS -.->|"M2 · WebSocket JSON"| PRES
     PRES -.-> OSD
+    DMX -.->|"M3 · PAT/PMT sections"| SDK
+    SDK -.->|"M3 · section filter data (IDemux)"| PSI
+    PSI -.->|"M4 · PIDs, stream types"| SES
 
     PRES ==>|"C1 · commands (zap, seek, key, …)"| WSS
     WSS ==>|"C2 · IUiChannel"| FAC
     FAC ==>|"C3"| SES
-    SES ==>|"C4 · start / stop (IHttpClient)"| HTTPC
+    SES ==>|"C4 · start / keepalive / stop (IHttpClient)"| HTTPC
     HTTPC ==>|"C4 · HTTP/JSON"| HE
-    SES ==>|"C5 · events (started, key required, …)"| FAC
-    FAC ==>|"C6 · events (IUiChannel → WebSocket)"| PRES
+    SES ==>|"C5 · tune, open / start / close filters"| SDK
+    KEY ==>|"C6 · set key"| SDK
+    SDK ==>|"C7 · configure tuner, PID filters, key"| HAL
+    TUN ==>|"C8 · Locked / Unlocked"| SDK
+    SES ==>|"C9 · events (playing, key required, …) → UI"| FAC
 ```
 
-The arrows between the AL and the PAL subgraphs are calls through the platform interfaces of IF-INT-04 (named on the arrows). The browser's composition of HTML OSD layers above the `<video>` element corresponds to the GPU composition and layering block of Lecture 2.
+The arrows between the AL and the PAL are calls and callbacks through the DTV SDK and platform interfaces of IF-INT-04 (named on the arrows). The HAL is reached by the AL only through the DTV SDK. The browser's composition of HTML OSD layers above the `<video>` element corresponds to the GPU composition and layering block of Lecture 2.
 
 #### 2.2.3 Software layering
 
-The receiver follows the host-software layering of Lecture 5. Each layer answers its own question and is implemented by one team member:
+The receiver follows the host-software layering of Lecture 5. Each layer answers its own question. The course staff named three blocks that every solution must contain — **DTV middleware, DTV SDK and a software demultiplexer** — and placed them in the AL, the PAL and the HAL respectively (HLR-25).
 
 - **Application** — *what does the viewer see and press?* Presentation and user interaction only; no protocol, parsing or decryption logic.
-- **Application layer (AL) — DTV middleware** — *what does the viewer want?* (zap, rewind, unlock). All DTV logic: service model, session control, TS demultiplexing, PAT/PMT parsing, descrambling rules and key validation, building the output stream.
-- **Platform layer (PAL)** — *what does the programmer need?* Network input, HTTP, WebSocket, file storage, encryption primitives, time — wrapped behind team-defined interfaces, on top of the OS and common libraries.
+- **Application layer (AL) — DTV middleware** — *what does the viewer want?* (zap, rewind, unlock). Service model, session control, PAT/PMT parsing, protection detection, key management and validation, HLS packaging of the output (the "HLS server" of the middleware).
+- **Platform layer (PAL) — OS and DTV SDK** — *what does the programmer want?* Tune, open a PID filter, set a descrambling key, write a file, send an HTTP request, talk to the UI, start a timer — as objects with a defined lifecycle, on top of the OS and common libraries.
+- **HAL** — *what can the hardware do?* Receive a transport stream (tuner), filter PIDs and assemble sections (demultiplexer), decrypt packets with a key (descrambler). Because the receiver has no DTV hardware, these blocks are implemented in software.
 
 | Layer (Lecture 5) | In this system | Built / reused / simulated | Work package |
 |---|---|---|---|
 | Application | Web application: views, presenters, model, keyboard handling (Model-View-Presenter, Section 2.2.6) | Built | **WP-APP** |
-| Middleware / AL — DTV middleware | DTV middleware core library `dtvcore` (AL-xx modules, Section 2.2.4) and the middleware process entry point | Built | **WP-AL** |
+| Middleware / AL — DTV middleware | DTV middleware library `dtvcore` (AL-xx modules, Section 2.2.4) and the middleware process entry point | Built | **WP-AL** |
 | Middleware / AL — media player | hls.js in the browser, integrated by the application | Reused | (WP-APP integrates) |
 | Middleware / AL — application runtime | Chromium in kiosk mode | Reused | — |
-| Platform / PAL — team adaptation layer | Platform interfaces (IF-INT-04) and their Linux implementations: IP input (UDP + RTP), HTTP client, HTTP/WebSocket server, HLS file store, AES cipher, clock, logger | Built | **WP-PAL** |
-| Platform / PAL — OS and common libraries | Linux sockets, C++17 threads, OpenSSL libcrypto, Mongoose, nlohmann/json; browser MSE | Reused | — |
-| Drivers / HAL | Linux network stack (loopback), GPU/audio drivers used by the browser | Reused, not modified; the operator network is simulated by loopback | — |
+| Platform / PAL — DTV SDK | `ITuner` and `IDemux` (IF-INT-04): tuning, filters, descrambler keys over the HAL | Built | **WP-PAL** |
+| Platform / PAL — other platform services | `IHttpClient`, `IUiChannel` (HTTP/WebSocket server), `IHlsStore`, `IClock`, `ILogger` | Built (over reused libraries) | **WP-PAL** |
+| Platform / PAL — OS and common libraries | Linux, sockets, C++17 threads, OpenSSL libcrypto, Mongoose, nlohmann/json; browser MSE | Reused | — |
+| HAL — tuner, demux, descrambler | IP tuner (RTP/UDP reception), software demultiplexer, software descrambler | Built — **software simulation of hardware blocks** | **WP-PAL** |
+| HAL — drivers | Linux network stack (loopback), GPU/audio drivers used by the browser | Reused, not modified; the operator network is simulated by loopback | — |
 
-**Operator side.** The head-end, the OTT MW REST server and the packaging tool are not layers of the receiver; they are the production / distribution side of the signal path. They are implemented by **WP-PAL**, because they produce exactly the input that the PAL delivers to the AL: the PAL owner is responsible for the whole path up to "TS packets enter the DTV middleware", the role of the front-end in the broadcast receiver of Lecture 2. The operator side is layered internally into a **domain layer** (archive timeline, EPG generation, session management, encryption) and an **I/O layer** (HTTP handlers, UDP sending, file access).
+**Operator side.** The head-end, the OTT MW REST server and the packaging tool are not layers of the receiver; they are the production / distribution side of the signal path. They are implemented by **WP-PAL**, which is responsible for the whole path up to "filter data enters the DTV middleware" — the role of the front-end in the broadcast receiver of Lecture 2. The operator side is layered internally into a **domain layer** (archive timeline, EPG generation, session management, encryption) and an **I/O layer** (HTTP handlers, UDP sending, file access).
 
-**Portability rule.** The AL library `dtvcore` depends only on the C++17 standard library, nlohmann/json and the platform interface headers of IF-INT-04 — never on Mongoose, OpenSSL or socket calls. This is verifiable by inspection of its CMake target (no link dependency on `ssl`, `crypto` or `mongoose`). Platform-dependent code lives only in the PAL library `pal`. This is the same role as the glue layer (Comedia CHAL) in Lecture 7: the AL can be unit-tested with fake adapters and moved to another platform by replacing the PAL.
+**Portability rule.** The AL library `dtvcore` depends only on the C++17 standard library, nlohmann/json and the DTV SDK and platform interface headers of IF-INT-04 — never on HAL code, Mongoose, OpenSSL or socket calls. This is verifiable by inspection of its CMake target (no link dependency on `hal`, `ssl`, `crypto` or `mongoose`). Platform-dependent code lives only in the libraries `pal` and `hal`. This is the same role as the DTV SDK wrappers of Lecture 6 and the glue layer (Comedia CHAL) of Lecture 7: the AL can be unit-tested with a fake DTV SDK and moved to another platform by replacing the PAL and HAL.
 
 #### 2.2.4 Components and modules
 
@@ -607,25 +620,26 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | WP-APP | Views | APP-VIEW | Player view (video element + hls.js on IF-INT-02, volume and mute), info bar, service list, number entry, EPG grid, key dialog, volume/mute indicator, message toast. |
 | WP-AL (AL) | UI API facade | AL-API | Decodes IF-INT-01 commands received through `IUiChannel`, dispatches them to the AL modules, encodes responses and events. Owns the semantics of IF-INT-01. |
 | WP-AL | Service & metadata manager | AL-SVC | Client logic of the MW REST API (IF-EXT-03) over `IHttpClient`; service list and EPG cache; maps service numbers to service identifiers. |
-| WP-AL | Session controller | AL-SES | Playback session state machine; keeps the requested start point (D-14); cancels superseded requests; timeouts via `IClock`; emits events. |
-| WP-AL | Head-end client | AL-HEC | Builds and sends start / stop requests (IF-EXT-04) over `IHttpClient`; interprets responses. |
-| WP-AL | TS demux | AL-DMX | TS sync, continuity counter check, PID filtering, routing to the PSI parser and the descrambler. |
-| WP-AL | PSI parser | AL-PSI | Assembles and parses PAT and PMT sections, checks CRC-32, produces the stream description (PMT PID, PCR PID, A/V PIDs, stream types). |
-| WP-AL | Descrambler & key manager | AL-DSC | Detects scrambled packets, applies the D-04 rules (which bytes, IV, residual) using `ICipher`, validates the key (D-11), keeps keys per service for the session. |
-| WP-AL | HLS packager | AL-OUT | Builds the output stream (clear PAT/PMT + decrypted A/V packets with scrambling bits cleared), cuts it into HLS segments, maintains the live playlist and removes old segments, through `IHlsStore` (IF-INT-02). |
-| WP-AL | Process entry point | AL-MAIN | `main()` of the middleware process: reads the configuration, creates the PAL objects, injects them into the AL modules (composition root), starts and stops the process. |
-| WP-PAL (PAL) | IP input | PAL-NET | `INetReceiver`: UDP socket on the configured port, RTP header check (version, payload type 33), sequence-number loss counting, extraction of the TS packets, receive thread. |
+| WP-AL | Session controller | AL-SES | Playback session state machine; tunes the tuner and opens / closes demux filters through the DTV SDK; reacts to tuner lock status; keeps the requested start point (D-14); cancels superseded requests; timeouts via `IClock`; emits events. |
+| WP-AL | Head-end client | AL-HEC | Builds and sends start, keepalive and stop requests (IF-EXT-04) over `IHttpClient`; interprets responses. |
+| WP-AL | PSI parser | AL-PSI | Opens section filters for PAT and PMT through `IDemux`; checks CRC-32 and parses the sections; produces the stream description (PMT PID, PCR PID, A/V PIDs, stream types). |
+| WP-AL | Key manager & validator | AL-DSC | Decides protection from the `scrambled` flag of the filter data; keeps keys per service for the session; sets them on the descrambler through `IDemux`; validates the key on the decrypted video packets (D-11); holds the output during validation. |
+| WP-AL | HLS packager | AL-OUT | The "HLS server" of the DTV middleware: builds the output stream (clear PAT/PMT + decrypted A/V packets), cuts it into HLS segments, maintains the live playlist and removes old segments, through `IHlsStore` (IF-INT-02). |
+| WP-AL | Process entry point | AL-MAIN | `main()` of the middleware process: reads the configuration, creates the platform (PAL and HAL), injects the interfaces into the AL modules (composition root), starts and stops the process. |
+| WP-PAL (PAL) | DTV SDK | PAL-SDK | `ITuner` and `IDemux` over the HAL: tuning, filter handles and their lifecycle (open → start → stop → close), section and TS filter callbacks, descrambler keys per PID, statistics. |
 | WP-PAL | HTTP client | PAL-HTTP | `IHttpClient`: asynchronous HTTP GET/POST with JSON body, timeout, result callback (Mongoose). |
 | WP-PAL | HTTP / WebSocket server | PAL-WS | Serves the Web application files (IF-INT-03) and the HLS files of the HLS file store under `/hls/` (IF-INT-02); `IUiChannel` on the control WebSocket (Mongoose). |
 | WP-PAL | HLS file store | PAL-FS | `IHlsStore`: per-session directory in the temporary HLS directory; atomic file writes (write to a temporary name, then rename); file removal; directory removal at session end and clean-up at start-up. |
-| WP-PAL | AES cipher | PAL-CRY | `ICipher`: AES-128-CBC decryption of a byte block with a given key and IV (OpenSSL libcrypto). |
 | WP-PAL | Clock and timers | PAL-CLK | `IClock`: wall-clock UNIX time, monotonic time, one-shot timers. |
 | WP-PAL | Logger | PAL-LOG | `ILogger`: timestamped log lines with module tag and level, to console and file. |
+| WP-PAL (HAL) | IP tuner | HAL-TUN | UDP socket on the tuned port, RTP header check (version, payload type 33, tuned SSRC), sequence-number loss counting, extraction of the TS packets, lock status, receive thread. |
+| WP-PAL (HAL) | Software demultiplexer | HAL-DMX | TS sync check, continuity counter check, PID filtering, assembly of PSI sections (also over several TS packets), routing of packets to the descrambler and to the filters. |
+| WP-PAL (HAL) | Software descrambler | HAL-DSC | Decryption of the packets of PIDs with a key set, according to D-04 (OpenSSL libcrypto); clears the scrambling bits. |
 | WP-PAL (operator side) | Content generator | SRV-GEN | FFmpeg script that generates the four clear content files according to D-09 and Section 2.2.1. |
 | WP-PAL (operator side) | Packaging tool | SRV-PKG | Command-line tool: reads a clear TS file and a key, writes the encrypted TS file according to D-04. |
-| WP-PAL (operator side) | Head-end — control API | SRV-HEC | HTTP stream control API (IF-EXT-04): validates requests, creates and stops sessions. |
+| WP-PAL (operator side) | Head-end — control API | SRV-HEC | HTTP stream control API (IF-EXT-04): validates requests, creates, keeps alive and stops sessions; stops sessions without keepalive. |
 | WP-PAL (operator side) | Head-end — archive timeline | SRV-ARC | Maps a requested UNIX time to a file position (D-08), using a PCR index built when the file is loaded; checks the archive window. |
-| WP-PAL (operator side) | Head-end — RTP sender | SRV-RTP | Per session: sends PAT/PMT first, then TS packets from the computed position, paced by PCR, packed 7 per RTP packet (IF-EXT-05). |
+| WP-PAL (operator side) | Head-end — RTP sender | SRV-RTP | Per session: sends PAT/PMT first, then TS packets from the computed position, paced by PCR, packed 7 per RTP packet with the session's SSRC (IF-EXT-05). |
 | WP-PAL (operator side) | OTT MW REST server | SRV-MW | Serves services, service info and EPG (IF-EXT-03); generates EPG events from the program titles on the archive cycle. |
 
 #### 2.2.5 Key interfaces
@@ -637,10 +651,10 @@ These interfaces are the **contracts between layers and work packages**. Their e
 | IF-INT-01 | UI control API | AL-API ↔ APP-MWC (transport by PAL-WS) | **WP-AL ↔ WP-APP** | WebSocket, JSON text frames | UI → AL: commands (get services, get EPG, play live, play at time, set key, …), each with a request id. AL → UI: responses and asynchronous events (session state changes, key required, key rejected, no signal, …). | `ws://127.0.0.1:8090/ws/control` |
 | IF-INT-02 | UI media stream (HLS) | AL-OUT → APP-VIEW / hls.js (files through PAL-FS, served by PAL-WS) | **WP-AL ↔ WP-APP** | HLS (RFC 8216) over HTTP GET | Live playlist and TS segments of the decrypted SPTS of the current session only. | `http://127.0.0.1:8090/hls/<session>/index.m3u8` |
 | IF-INT-03 | Web application files | PAL-WS → browser | WP-PAL ↔ WP-APP | HTTP GET | Static HTML/CSS/JS of the Web application, from the same origin as IF-INT-01/02, so no CORS rules are needed. | `http://127.0.0.1:8090/` |
-| IF-INT-04 | Platform interfaces | PAL-xx → AL-xx | **WP-PAL ↔ WP-AL** | C++ abstract classes (headers in `middleware/include/pal/`) | `INetReceiver`, `IHttpClient`, `IUiChannel`, `IHlsStore`, `ICipher`, `IClock`, `ILogger`: operations, callbacks, threading rules, buffer ownership. | — |
+| IF-INT-04 | DTV SDK and platform interfaces | PAL-xx → AL-xx | **WP-PAL ↔ WP-AL** | C++ abstract classes (headers in `middleware/include/pal/`) | DTV SDK: `ITuner`, `IDemux` (filters and descrambler key); platform: `IHttpClient`, `IUiChannel`, `IHlsStore`, `IClock`, `ILogger`: operations, callbacks, threading rules, buffer ownership. | — |
 | IF-EXT-03 | OTT MW REST API | SRV-MW → AL-SVC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP GET, JSON | Service list, service info (head-end control URL, archive window), EPG events for a time range. | `http://127.0.0.1:8080` |
-| IF-EXT-04 | Stream control API | SRV-HEC → AL-HEC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP POST, JSON | `start` (service, start point "live" or UNIX time, receiver UDP port) → session id; `stop` (session id). | `http://127.0.0.1:8081` |
-| IF-EXT-05 | Media stream | SRV-RTP → PAL-NET | within WP-PAL | RTP/UDP, RFC 2250 | MPEG-TS of one service, encrypted per D-04 for protected services. | UDP `127.0.0.1:5004` |
+| IF-EXT-04 | Stream control API | SRV-HEC → AL-HEC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP POST, JSON | `start` (service, start point "live" or UNIX time, receiver UDP port, SSRC) → session id; `keepalive` (session id) every 5 s; `stop` (session id). | `http://127.0.0.1:8081` |
+| IF-EXT-05 | Media stream | SRV-RTP → HAL-TUN | within WP-PAL | RTP/UDP, RFC 2250 | MPEG-TS of one service, encrypted per D-04 for protected services. | UDP `127.0.0.1:5004` |
 | IF-INT-05 | Encrypted content files | SRV-PKG → SRV-ARC / SRV-RTP | within WP-PAL | Files + JSON content configuration | Encrypted TS files and the mapping service → file → protection. | `content/` directory |
 
 Ports are defaults; every component reads them from its configuration file. The interfaces marked in bold are the ones that must be frozen at milestone I-1, because two different team members implement their two sides.
@@ -650,12 +664,12 @@ Ports are defaults; every component reads them from its configuration file. The 
 | Pattern | Problem it solves | Where it appears |
 |---|---|---|
 | Layered architecture (Lecture 5) | Separates what the viewer sees (application), what the viewer wants (AL) and what the platform provides (PAL), so that each layer can be developed and tested independently — by a different team member. | Section 2.2.3; one work package per layer. |
-| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | PAL-NET receive thread (producer) → queue → AL-DMX / AL-DSC / AL-OUT (consumer and producer) → HLS segments in the file store (bounded to 10 segments) → browser fetching them with hls.js (consumer); on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
+| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | HAL-TUN receive thread (producer) → HAL-DMX / HAL-DSC → DTV SDK filter callbacks → AL queue → AL-PSI / AL-DSC / AL-OUT (consumer and producer) → HLS segments in the file store (bounded to 10 segments) → browser fetching them with hls.js (consumer); on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
 | State machine | Playback depends on the current state (starting, waiting for PSI, waiting for a key, validating a key, playing, no signal); an event that is valid in one state must be ignored or handled differently in another. | AL-SES session state machine; context handling in APP-KEY. Specified as a state diagram and a transition table in Section 4. |
 | Asynchronous command / event with "latest request wins" | Starting a stream takes time; the viewer may press a new key before the previous request completes. Acceptance of a command is separated from its completion; every session carries a generation number, and events or data of an older generation are discarded. | IF-INT-01 (request id → response, later events); AL-SES stops the previous session before starting a new one; APP-PRS ignores events of superseded requests. |
-| Adapter (platform abstraction / glue layer, Lectures 6–7) | Keeps the AL independent of Mongoose, OpenSSL and the socket API, so that it is portable and can be unit-tested with fakes while the PAL is still being written. | IF-INT-04: interfaces used by the AL, implementations in the PAL, fake implementations in the AL tests. |
+| Adapter / wrapper (DTV SDK and glue layer, Lectures 6–7) | Keeps the AL independent of the HAL blocks, Mongoose, OpenSSL and the socket API, so that it is portable and can be unit-tested with fakes while the PAL and HAL are still being written. The DTV SDK plays the role of Nexus / the Android Tuner SDK: it turns the tuner, demux and descrambler into objects with a tune / open filter / start / event lifecycle. | IF-INT-04: interfaces used by the AL, implementations in the PAL (over the HAL), fake implementations in the AL tests. |
 | Dependency injection (composition root) | The AL must not create platform objects itself, otherwise it would depend on them. | AL-MAIN creates the PAL objects and passes them to the AL modules as interface references. |
-| Observer | Lower layers must notify upper layers without depending on them. | PAL → AL callbacks (`INetReceiver`, `IHttpClient`, `IUiChannel`); AL-SES → AL-API events; APP-MOD → views. |
+| Observer | Lower layers must notify upper layers without depending on them. | PAL → AL callbacks (`ITuner` status, `IDemux` filter data, `IHttpClient`, `IUiChannel`); AL-SES → AL-API events; APP-MOD → views. |
 | Model-View-Presenter | Keeps rendering (views) free of logic and logic free of DOM code, so the presenters can be tested without a browser and the views changed without touching logic. | Application: APP-MOD (model), APP-VIEW (views), APP-PRS (presenters). |
 
 #### 2.2.7 Parallel development
@@ -665,8 +679,8 @@ The system is developed by three team members in parallel, **one layer per membe
 | Work package | Layer | Branch | Directories | Modules | Stand-ins for the neighboring layers during development |
 |---|---|---|---|---|---|
 | WP-APP | Application | `app` | `webui/` | APP-MWC, APP-MOD, APP-KEY, APP-PRS, APP-VIEW | Mock middleware script (`webui/mock/`) that serves the Web application files, answers IF-INT-01 commands with the JSON examples of Section 3, emits scripted events (including "key required" and "key rejected") and serves an HLS live stream made from a clear content file with `ffmpeg -re -i <file>.ts -c copy -f hls -hls_time 1 -hls_list_size 6 -hls_flags delete_segments` as IF-INT-02. |
-| WP-AL | Application layer — DTV middleware | `al` | `middleware/core/`, `middleware/main/` | AL-API, AL-SVC, AL-SES, AL-HEC, AL-DMX, AL-PSI, AL-DSC, AL-OUT, AL-MAIN | Fake PAL implementations in the unit tests (`middleware/core/tests/fakes/`): network input fed from a TS file, HTTP client returning the JSON examples of Section 3, scripted UI channel, HLS store writing to a temporary directory (playlist and segments checked with `ffprobe` / `ffplay`), controllable clock, identity cipher. No network is needed to test the AL. |
-| WP-PAL | Platform layer + operator side | `pal` | `middleware/pal/`, `server/`, `content/` | PAL-NET, PAL-HTTP, PAL-WS, PAL-FS, PAL-CRY, PAL-CLK, PAL-LOG, SRV-GEN, SRV-PKG, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs per adapter (`middleware/pal/tools/`), e.g. receive RTP → write TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
+| WP-AL | Application layer — DTV middleware | `al` | `middleware/core/`, `middleware/main/` | AL-API, AL-SVC, AL-SES, AL-HEC, AL-PSI, AL-DSC, AL-OUT, AL-MAIN | Fake DTV SDK and platform implementations in the unit tests (`middleware/core/tests/fakes/`): tuner and demux fed from a clear or encrypted TS file (lock event, section and TS filter callbacks, descrambling by a reference implementation of D-04), HTTP client returning the JSON examples of Section 3, scripted UI channel, HLS store writing to a temporary directory (playlist and segments checked with `ffprobe` / `ffplay`), controllable clock. No network is needed to test the AL. |
+| WP-PAL | Platform layer (DTV SDK) + HAL + operator side | `pal` | `middleware/pal/`, `middleware/hal/`, `server/`, `content/` | PAL-SDK, PAL-HTTP, PAL-WS, PAL-FS, PAL-CLK, PAL-LOG, HAL-TUN, HAL-DMX, HAL-DSC, SRV-GEN, SRV-PKG, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs (`middleware/pal/tools/`), e.g. tune → open a section filter on PID 0 → print PAT sections; tune → TS filter → write a TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
 
 Shared files, changed only on `main` and merged into all branches: `SPECIFICATION.md`, the platform interface headers `middleware/include/pal/` (IF-INT-04), the top-level `middleware/CMakeLists.txt`, `scripts/` (start/stop scripts), `README.md`.
 
@@ -688,7 +702,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 | I-4 Feature complete | 2026-12-01 | All mandatory requirements implemented; acceptance tests executed and results recorded. |
 | I-5 Demo rehearsal | 2026-12-02 | Full demo scenario run from the start script, on the defense laptop, over HDMI. |
 
-**Defense presentation.** The three content slides follow the same division: application (WP-APP), application layer / DTV middleware (WP-AL), platform layer and operator side (WP-PAL); each member presents the layer they implemented.
+**Defense presentation.** The three content slides follow the same division: application (WP-APP), application layer / DTV middleware (WP-AL), platform layer (DTV SDK), HAL and operator side (WP-PAL); each member presents the layer they implemented.
 
 #### 2.2.8 Reused components and versions
 
@@ -697,7 +711,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 | Ubuntu | 24.04 LTS | All | Development and runtime OS |
 | GCC (g++) | 13.3 | WP-AL, WP-PAL | C++17 compiler |
 | CMake | 3.28 | WP-AL, WP-PAL | Build system |
-| OpenSSL (libcrypto) | 3.0.13 | WP-PAL (PAL-CRY only) | AES-128-CBC decryption |
+| OpenSSL (libcrypto) | 3.0.13 | WP-PAL (HAL-DSC only) | AES-128-CBC decryption |
 | Mongoose | 7.23 | WP-PAL (PAL-HTTP, PAL-WS only) | HTTP client, HTTP server, WebSocket server (single source file) |
 | nlohmann/json | 3.12.0 | WP-AL | JSON parsing and generation |
 | Python | 3.12 | WP-PAL (operator side) | Head-end, OTT MW server, packaging tool (standard library `http.server`, `socket`, `threading`, `json`) |
@@ -708,7 +722,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 
 ### 2.3 Detailed functional requirements
 
-All requirements in this section are **mandatory**. Each requirement names the layer that implements it (**APP**, **AL**, **PAL**, or **SRV** for the operator side implemented by WP-PAL), its source and its verification method (Section 2, legend). Test cases (`TST-xx`) that verify each requirement are defined in Section 5. Where a requirement involves two layers, the layer named first owns the behavior and the other one only provides what the interfaces of Section 3 define.
+All requirements in this section are **mandatory**. Each requirement names the layer that implements it (**APP**, **AL**, **PAL**, **HAL**, or **SRV** for the operator side; PAL, HAL and SRV are implemented by WP-PAL), its source and its verification method (Section 2, legend). Test cases (`TST-xx`) that verify each requirement are defined in Section 5. Where a requirement involves two layers, the layer named first owns the behavior and the other one only provides what the interfaces of Section 3 define.
 
 #### 2.3.1 Start-up and service list
 
@@ -735,15 +749,15 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-12 | On `play`, the AL shall obtain the service info of the service (`GET /services/{id}`, cached after the first success) and send `POST /start` to its `stream_control_url` with the configured receiver UDP port; the session shall be in state `starting` until the response arrives and in `waiting_stream` after a successful response. | AL | US-05 AC1; HLR-15 | T |
-| REQ-13 | The PAL shall receive RTP datagrams on the configured UDP port, accept only datagrams with `V = 2`, `PT = 33` and a payload of 1–7 whole TS packets, count dropped datagrams and sequence-number gaps (`INetReceiver::Stats`), and deliver the TS packets with the SSRC and sequence number of their datagram. | PAL | IF-EXT-05; HLR-13 | T |
-| REQ-14 | The AL shall process only TS packets whose SSRC equals the SSRC returned for the current session; all other packets shall be discarded. | AL | HLR-10; US-18 | T |
-| REQ-15 | The AL shall check the sync byte `0x47` of every TS packet and discard packets without it; it shall check continuity counters per PID and count and log discontinuities without stopping the session. | AL | HLR-12 | T |
-| REQ-16 | The AL shall parse the PAT from PID 0: verify `table_id = 0x00`, section length and CRC-32, take the first program with `program_number ≠ 0` and its PMT PID. Sections with an invalid CRC shall be discarded. | AL | HLR-12 | T |
-| REQ-17 | The AL shall parse the PMT from the PMT PID: verify `table_id = 0x02`, section length and CRC-32, read the PCR PID and select the first elementary stream with `stream_type 0x1B` as video and the first with `stream_type 0x0F` as audio. If no video stream is found, the session shall go to state `error`. | AL | HLR-12 | T |
+| REQ-12 | On `play`, the AL shall obtain the service info of the service (`GET /services/{id}`, cached after the first success), choose a new random SSRC for the session, tune the tuner (`ITuner::tune`) to the configured receiver UDP port and that SSRC, and then send `POST /start` with the port and the SSRC to the service's `stream_control_url`; the session shall be in state `starting` until the response arrives and in `waiting_stream` after a successful response. | AL | US-05 AC1; HLR-15 | T |
+| REQ-13 | The tuner shall receive RTP datagrams on the tuned UDP port and accept only datagrams with `V = 2`, `PT = 33`, the tuned SSRC and a payload of 1–7 whole TS packets; it shall count dropped datagrams and sequence-number gaps, pass the TS packets to the demux, report `Locked` at the first accepted datagram after tuning, `Unlocked` after 3 s without accepted datagrams, and `Locked` again when they return. | HAL | IF-EXT-05; HLR-13; HLR-25 | T |
+| REQ-14 | Before starting a new session, the AL shall close all demux filters of the previous session and re-tune the tuner with the new SSRC, so that no data of an older session can reach the AL (IF-INT-04, rule 4). | AL | HLR-10; US-18 | T |
+| REQ-15 | The demux shall check the sync byte `0x47` of every TS packet and discard packets without it; it shall check continuity counters per PID and count discontinuities without stopping. | HAL | HLR-12; HLR-25 | T |
+| REQ-16 | The AL shall open a section filter on PID 0 (`table_id 0x00`) through `IDemux` and parse the PAT: verify `table_id`, section length and CRC-32, take the first program with `program_number ≠ 0` and its PMT PID. Sections with an invalid CRC shall be discarded. | AL | HLR-12 | T |
+| REQ-17 | The AL shall open a section filter on the PMT PID (`table_id 0x02`) and parse the PMT: verify `table_id`, section length and CRC-32, read the PCR PID and select the first elementary stream with `stream_type 0x1B` as video and the first with `stream_type 0x0F` as audio. If no video stream is found, the session shall go to state `error`. | AL | HLR-12 | T |
 | REQ-18 | When PAT and PMT have been parsed, the AL shall send `stream_info` once per session and log the program number, PMT PID, PCR PID, video PID and audio PID. | AL | HLR-12; US-22 AC3 | T |
-| REQ-19 | After PMT parsing, the AL shall pass on only the packets of PID 0, the PMT PID, the video PID and the audio PID; all other PIDs shall be discarded. | AL | HLR-12 | T |
-| REQ-20 | If no RTP data of the current session arrives within 5 s after `waiting_stream` was entered, the AL shall set state `no_signal` (`reason: "no_data_at_start"`); if no data arrives for 3 s while `playing`, it shall set `no_signal` (`reason: "data_lost"`); when data arrives again it shall return to the previous state. The APP shall show "No signal" while the state is `no_signal`. | AL, APP | US-05 AC2; US-19 AC1 | T |
+| REQ-19 | After PMT parsing, the AL shall open TS filters only for PID 0, the PMT PID, the video PID and the audio PID (for the output stream), in addition to the section filters of REQ-16 and REQ-17; the demux shall deliver to each filter only the packets of its PID, one TS packet per callback. | AL, HAL | HLR-12; HLR-25 | T |
+| REQ-20 | If the tuner does not report `Locked` within 5 s after `waiting_stream` was entered, the AL shall set state `no_signal` (`reason: "no_data_at_start"`); if the tuner reports `Unlocked` while `playing`, it shall set `no_signal` (`reason: "data_lost"`); when the tuner reports `Locked` again it shall return to the previous state. The APP shall show "No signal" while the state is `no_signal`. | AL, APP | US-05 AC2; US-19 AC1 | T |
 | REQ-21 | If the head-end is not reachable or answers `POST /start` with an error, the AL shall set state `error` with the corresponding error code (Section 3.10); the APP shall show the message of Section 3.10 for that code. | AL, APP | HLR-09 | T |
 
 #### 2.3.4 Output to the player and presentation
@@ -797,24 +811,24 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-44 | The AL shall decide that a stream is protected when the first packet of the video PID received after PMT parsing has `transport_scrambling_control ≠ '00'`, and clear otherwise. A clear stream goes to `playing` without key handling. | AL | US-17; D-04 | T |
+| REQ-44 | The AL shall decide that a stream is protected when the first packet delivered by the video TS filter has the `scrambled` flag set (it was received with `transport_scrambling_control ≠ '00'`), and clear otherwise. A clear stream goes to `playing` without key handling. | AL | US-17; D-04 | T |
 | REQ-45 | For a protected stream without a stored key for the service, the AL shall stop the head-end session, keep the start point (D-14) and set state `key_required` with `reason: "no_key"`. No HLS segment of the session shall be written. | AL | US-14 AC1; D-14 | T |
 | REQ-46 | On `key_required` of its current session, the APP shall open the key dialog automatically, titled "Enter the decryption key" for `no_key` and "Incorrect decryption key" for `key_rejected`. | APP | US-14 AC1; US-16 AC1, AC2 | T |
 | REQ-47 | The key dialog shall accept only `0–9` and `A–F` (letters case-insensitive), at most 32 characters, display each typed character masked (`•`) with a counter `n/32`, delete with `BACKSPACE`, cancel with `ESC`, and accept `ENTER` only when 32 characters have been typed; on `ENTER` the APP sends `set_key`. While the dialog is open, no playback shortcut is active. | APP | US-14 AC3 | T |
 | REQ-48 | When the key dialog is cancelled while the state is `key_required`, the APP shall show "Protected service – press K to enter the key" until the state changes; `K` shall open the key dialog for the current service at any time. | APP | US-14 AC2, AC5 | T |
-| REQ-49 | On `set_key`, the AL shall validate the format, store the key for the service in memory only, and — if the current session of that service is in `key_required` — restart it from the kept start point with the same `start` (D-14), entering `validating_key` once the stream is protected. | AL | US-14 AC4; US-16 AC3; D-14 | T |
-| REQ-50 | The AL shall decrypt every packet of the video and audio PIDs with `transport_scrambling_control = '10'` as defined in D-04: payload after the header and adaptation field, the largest multiple of 16 bytes decrypted with AES-128-CBC (key of the service, IV = 16 zero bytes) through `ICipher`, the remaining bytes unchanged. | AL | D-04; HLR-13 | T |
-| REQ-51 | In `validating_key`, the AL shall check the first 3 packets of the video PID with `payload_unit_start_indicator = 1`: the decrypted payload must begin with `00 00 01`. If all 3 pass, the key is accepted and the state becomes `playing`; if any fails, the key is rejected. The decision shall be made within 3 s after the first RTP data of the session. | AL | US-16 AC1; D-11 | T |
+| REQ-49 | On `set_key`, the AL shall validate the format and store the key for the service in memory only. Whenever a session of a service with a stored key reaches PMT parsing, the AL shall set that key on the descrambler for the video and audio PIDs (`IDemux::set_key`) before starting the TS filters. If the current session of that service is in `key_required`, the AL shall restart it from the kept start point with the same `start` (D-14), entering `validating_key` once the stream is protected. | AL | US-14 AC4; US-16 AC3; D-14 | T |
+| REQ-50 | The descrambler shall decrypt every packet of a PID with a key set and `transport_scrambling_control = '10'` as defined in D-04 (payload after the header and adaptation field; the largest multiple of 16 bytes decrypted with AES-128-CBC, IV = 16 zero bytes; the remaining bytes unchanged), set its scrambling bits to `'00'` and deliver it with `scrambled = true`. Packets of PIDs without a key are delivered unchanged with `scrambled = true`. | HAL | D-04; HLR-13; HLR-25 | T |
+| REQ-51 | In `validating_key`, the AL shall check the first 3 packets of the video TS filter with `payload_unit_start_indicator = 1`: the decrypted payload must begin with `00 00 01`. If all 3 pass, the key is accepted and the state becomes `playing`; if any fails, the key is rejected. The decision shall be made within 3 s after the tuner reported `Locked`. | AL | US-16 AC1; D-11 | T |
 | REQ-52 | During `validating_key`, the AL shall hold the decrypted output in memory and write the first HLS segment only after the key is accepted, so that the first segment begins at the requested start point. | AL | D-14; US-16 AC3 | T |
-| REQ-53 | On key rejection, the AL shall discard the key of the service, discard the held output, stop the head-end session, keep the start point and set `key_required` with `reason: "key_rejected"`. | AL | US-16 AC2 | T |
+| REQ-53 | On key rejection, the AL shall discard the key of the service, clear it from the descrambler (`IDemux::clear_keys`), discard the held output, stop the head-end session, keep the start point and set `key_required` with `reason: "key_rejected"`. | AL | US-16 AC2 | T |
 | REQ-54 | Keys shall be stored per `service_id`: a key stored for one service shall never be used for another. An accepted key shall be reused for later sessions of the same service in the same run of the middleware, without opening the key dialog. | AL | US-15 AC3; US-16 AC4 | T |
-| REQ-55 | The AL shall never write a key to disk or to a log; log lines that refer to a key shall show at most its first 4 characters followed by `…`. | AL | HLR-16 | I, T |
+| REQ-55 | No layer of the receiver shall write a key to disk or to a log; log lines that refer to a key shall show at most its first 4 characters followed by `…`. | AL, PAL, HAL | HLR-16 | I, T |
 
 #### 2.3.10 Session control and concurrency
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-56 | On every `play`, the AL shall end the current session before starting the new one: cancel its pending HTTP requests and timers, send `POST /stop` for its head-end session, discard its held data, remove its HLS directory (`IHlsStore::close_session`), and send `session_state` with `state: "stopped"` for it. After that, no other event of the old session shall be sent. | AL | HLR-10; US-18 | T |
+| REQ-56 | On every `play`, the AL shall end the current session before starting the new one: cancel its pending HTTP requests and timers, send `POST /stop` for its head-end session, close its demux filters and clear the descrambler keys (`IDemux::close_filter`, `IDemux::clear_keys`), discard its held data, remove its HLS directory (`IHlsStore::close_session`), and send `session_state` with `state: "stopped"` for it. After that, no other event of the old session shall be sent. | AL | HLR-10; US-18 | T |
 | REQ-57 | If the control WebSocket is closed, the APP shall reconnect every 2 s; after reconnecting it shall request `get_status` and `get_services` and restore its state from the answers. The AL session shall continue independently of the UI connection. | APP, AL | HLR-09 | T |
 | REQ-58 | Invalid input on any interface (malformed JSON, unknown commands, invalid TS packets, invalid PSI sections, invalid RTP datagrams) shall be rejected as defined in Section 3 and logged, and shall never terminate a component. | AL, PAL, SRV | HLR-09 | T |
 | REQ-59 | The AL shall log with a timestamp: every `play` (service, start), every head-end session (session id, SSRC, start time), PAT/PMT results, protection decision, key accepted / rejected, every state change and every error. | AL | US-22 AC3; HLR-23 | I |
@@ -836,7 +850,16 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | REQ-65 | The head-end shall implement IF-EXT-04 as specified in Section 3.3, including validation, error codes and the rule "one session per receiver endpoint". | SRV | US-21 AC3; D-06 | T |
 | REQ-66 | The head-end shall send each session as specified in Section 3.4, in real time paced by PCR (average bitrate over 10 s within ±5 % of the content bitrate), and at the end of the file shall continue seamlessly with the beginning of the file without interrupting the RTP stream. | SRV | US-21; D-08 | T |
 
-#### 2.3.13 Traceability: high-level requirements → detailed requirements
+#### 2.3.13 Failure of the head-end or the receiver
+
+| ID | Requirement | Layer | Source | Verif. |
+|---|---|---|---|---|
+| REQ-67 | While a session has a head-end session, the AL shall send `POST /keepalive` for it every 5 s (IF-EXT-04). | AL | US-21 AC4; D-06 | T |
+| REQ-68 | The head-end shall stop a session that has received neither its start request nor a keepalive for 15 s, and shall log the reason. | SRV | US-21 AC4; D-06 | T |
+| REQ-69 | If a keepalive is answered with `SESSION_NOT_FOUND`, or the head-end does not answer keepalives for 15 s, the AL shall close the filters of the session, untune the tuner and set state `error` with `HEADEND_UNREACHABLE`; the APP shows "No signal". A new `play` shall start a new head-end session without restarting the receiver. | AL, APP | US-19 AC3; NFR-07 | T |
+| REQ-70 | When the middleware process is stopped in an orderly way, the AL shall send `POST /stop` for its current head-end session before terminating. | AL | US-21 AC4; HLR-23 | T |
+
+#### 2.3.14 Traceability: high-level requirements → detailed requirements
 
 | HLR | Detailed requirements |
 |---|---|
@@ -848,16 +871,17 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | HLR-06 Archive navigation | REQ-37 – REQ-43 |
 | HLR-07 Protection and keys | REQ-44 – REQ-55 |
 | HLR-08 Keyboard | REQ-60, REQ-61 |
-| HLR-09 Error reporting | REQ-04, REQ-09, REQ-20, REQ-21, REQ-36, REQ-38, REQ-57, REQ-58 |
+| HLR-09 Error reporting | REQ-04, REQ-09, REQ-20, REQ-21, REQ-36, REQ-38, REQ-57, REQ-58, REQ-67 – REQ-70 |
 | HLR-10 Latest request wins | REQ-07, REQ-14, REQ-26, REQ-39, REQ-56 |
 | HLR-11 Metadata from MW | REQ-01, REQ-02, REQ-05, REQ-32 |
 | HLR-12 PAT/PMT parsing | REQ-15 – REQ-19 |
-| HLR-13 Own DTV processing | REQ-13, REQ-22, REQ-50, NFR-09 |
+| HLR-13 Own DTV processing | REQ-13, REQ-15, REQ-22, REQ-50, NFR-09 |
 | HLR-14 Operator side | REQ-62 – REQ-66 |
-| HLR-15 Head-end streaming | REQ-12, REQ-42, REQ-65, REQ-66 |
+| HLR-15 Head-end streaming | REQ-12, REQ-42, REQ-65, REQ-66, REQ-67, REQ-68 |
 | HLR-16 Key never transmitted | REQ-55, NFR-08 |
 | HLR-17 Interfaces only, no persistence | REQ-55, NFR-08, NFR-16 |
 | HLR-18 – HLR-24 Technical constraints | NFR-09 – NFR-17 |
+| HLR-25 DTV MW, DTV SDK, SW demux | REQ-13, REQ-15, REQ-19, REQ-50, NFR-09 |
 
 ### 2.4 Non-functional requirements
 
@@ -871,10 +895,10 @@ Measured values refer to the demo laptop (D-12) with all components running.
 | NFR-04 | Accuracy — rewind position | The burned-in time code of the first presented picture shall differ from the requested position (`T mod 600`) by at most 1 s. | T |
 | NFR-05 | Responsiveness | Every key press shall produce a visible reaction of the OSD (indicator, dialog, list, number) within 200 ms. | T |
 | NFR-06 | Stability | The system shall play live for 30 minutes (at least 3 loop boundaries of the content) without a component terminating, without an interruption of the picture longer than 1 s at a loop boundary, with a growth of the middleware's resident memory of at most 20 MB, and with at most 10 segment files in the HLS directory at any time. | T |
-| NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. | T |
+| NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. When the middleware process is stopped, the head-end shall stop sending its stream within 20 s. | T |
 | NFR-08 | Security of keys | Keys shall not appear in any log file, any file on disk, or any network traffic other than the local control WebSocket (IF-INT-01). Verified by inspection of the code, by searching the log files for the test keys, and by searching a loopback packet capture of a full demo run for the key bytes outside IF-INT-01. | I, A |
-| NFR-09 | Portability | The AL library `dtvcore` shall build and pass its unit tests without OpenSSL, Mongoose or socket headers, using only the C++17 standard library, nlohmann/json and the IF-INT-04 headers. | I, T |
-| NFR-10 | Testability | Unit tests shall exist at least for AL-DMX, AL-PSI, AL-DSC, AL-OUT and AL-SES (with fake PAL implementations), for each PAL adapter, and for SRV-PKG (encryption round trip) and SRV-ARC (time → position). Native tests shall run with one `ctest` command, server tests with one `python3 -m unittest` command, Web application tests with one documented command. | I, T |
+| NFR-09 | Portability | The AL library `dtvcore` shall build and pass its unit tests without OpenSSL, Mongoose, socket or HAL headers, using only the C++17 standard library, nlohmann/json and the IF-INT-04 headers (DTV SDK and platform interfaces). | I, T |
+| NFR-10 | Testability | Unit tests shall exist at least for AL-PSI, AL-DSC, AL-OUT and AL-SES (with a fake DTV SDK), for HAL-TUN, HAL-DMX and HAL-DSC, for each PAL module, and for SRV-PKG (encryption round trip) and SRV-ARC (time → position). Native tests shall run with one `ctest` command, server tests with one `python3 -m unittest` command, Web application tests with one documented command. | I, T |
 | NFR-11 | Code quality | C++ code shall compile with `-Wall -Wextra` without warnings; Python code shall use only the standard library and `cryptography`; the Web application shall be plain ES2020 modules without a build step. | I |
 | NFR-12 | Operability | One script (`scripts/start.sh`) shall start the OTT MW server, the head-end, the middleware and Chromium in kiosk mode within 15 s, checking that each component has opened its port and stopping with an error message naming the component that failed; one script (`scripts/stop.sh`) shall stop all components. | D |
 | NFR-13 | Logging | Every component shall write timestamped log lines (`<ISO time> <LEVEL> [<module>] <message>`) to `logs/<component>.log`; the logs of a demo run shall contain the evidence listed in REQ-59. | I |
@@ -1006,13 +1030,13 @@ Provider: SRV-HEC (WP-PAL). Consumer: AL-HEC through PAL-HTTP (WP-AL). Base URL:
 Request:
 
 ```json
-{ "service_id": "svc-3", "start": 1794999600, "client_host": "127.0.0.1", "client_port": 5004 }
+{ "service_id": "svc-3", "start": 1794999600, "client_host": "127.0.0.1", "client_port": 5004, "ssrc": 3054235519 }
 ```
 
 or, for live:
 
 ```json
-{ "service_id": "svc-1", "start": "live", "client_host": "127.0.0.1", "client_port": 5004 }
+{ "service_id": "svc-1", "start": "live", "client_host": "127.0.0.1", "client_port": 5004, "ssrc": 1180331842 }
 ```
 
 Response `200`:
@@ -1031,15 +1055,16 @@ Provider guarantees:
 
 - `start_time` is the UNIX time of the first content sent: the requested `T`, or the server's current time for `"live"`.
 - If a session already exists for the same `client_host:client_port`, it is stopped **before** the new one is created; after the response, no packet of the old session is sent (D-06).
-- Every session has a new random `ssrc`; the RTP packets of the session carry it (IF-EXT-05).
+- The RTP packets of the session carry the `ssrc` given in the request (chosen by the receiver, so that the receiver can tune to it before the first packet arrives); the response repeats it.
+- The session is stopped by the head-end when no `POST /start`, `POST /keepalive` for it has been received for 15 s (Section 3.3.3).
 - The first RTP packets of a session carry PAT and PMT, then the TS packets from the content position of `start_time` (Section 3.4).
 - After the start time, the session continues in real time without end (an archive session becomes "delayed live") until it is stopped.
 
 Errors:
 
-| Status | Sections 1, 2, 3 — done (Section 3 to be frozen at I-1); Section 4 (design) and Section 5 (verification plan) — next |
+| Status | Code | When |
 |---|---|---|
-| 400 | `INVALID_REQUEST` | Missing or malformed field. |
+| 400 | `INVALID_REQUEST` | Missing or malformed field (including `ssrc` not an unsigned 32-bit integer). |
 | 400 | `OUT_OF_ARCHIVE` | `T < now − 7200`. |
 | 400 | `FUTURE_TIME` | `T ≥ now` (the consumer must use `"live"`). |
 | 404 | `SERVICE_NOT_FOUND` | Unknown `service_id`. |
@@ -1049,9 +1074,17 @@ Errors:
 Request: `{ "session_id": "hs-000017" }` → response `200`: `{ "stopped": true }`. After the response, no packet of that session is sent.
 Errors: `404 SESSION_NOT_FOUND` (also for an already stopped session; the consumer treats it as success).
 
+#### 3.3.3 `POST /keepalive` — keep a stream session alive
+
+Request: `{ "session_id": "hs-000017" }` → response `200`: `{ "expires_in_s": 15 }`.
+
+- The receiver sends a keepalive for its current session every 5 s while the session is running (REQ-67).
+- A session that has received neither its start nor a keepalive for 15 s is stopped by the head-end (REQ-68).
+- Errors: `404 SESSION_NOT_FOUND` — the session was stopped or expired, or the head-end was restarted; the receiver treats the stream as lost (REQ-69).
+
 ### 3.4 IF-EXT-05 — RTP media stream
 
-Provider: SRV-RTP (WP-PAL). Consumer: PAL-NET (WP-PAL). The content of the packets is consumed by the AL, so the TS-level rules below are also a contract with WP-AL.
+Provider: SRV-RTP (WP-PAL). Consumer: HAL-TUN (WP-PAL). The content of the packets is consumed by the AL, so the TS-level rules below are also a contract with WP-AL.
 
 | Item | Specification |
 |---|---|
@@ -1059,7 +1092,7 @@ Provider: SRV-RTP (WP-PAL). Consumer: PAL-NET (WP-PAL). The content of the packe
 | RTP header (RFC 3550) | 12 bytes, no CSRC, no extension, no padding: `V = 2`, `P = 0`, `X = 0`, `CC = 0`, `M = 0`, `PT = 33`. |
 | Sequence number | Random initial value per session, incremented by 1 per packet (wraps at 65535). |
 | Timestamp | 90 kHz clock derived from the PCR of the content (RFC 2250). |
-| SSRC | Value returned by `POST /start`; constant during the session. |
+| SSRC | Value given by the receiver in `POST /start`; constant during the session. |
 | Payload | 1 to 7 complete TS packets of 188 bytes (normally 7 = 1316 bytes). |
 | Pacing | Real time, paced by the PCR of the content. |
 | Start of session | The first TS packets of a session are one PAT and one PMT; then packets from the TS packet with the largest PCR not later than the requested position. |
@@ -1217,17 +1250,19 @@ Provider: AL-OUT (WP-AL), which writes the files through `IHlsStore` (PAL-FS); P
 
 Provider: PAL-WS (WP-PAL). Consumer: browser (WP-APP). `GET http://127.0.0.1:8090/<path>` serves the files of the directory `webui/` (configured as `webui_dir`); `/` serves `index.html`. Paths under `/hls/` are reserved for IF-INT-02. The Web application loads hls.js from `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js` (HLR-21).
 
-### 3.9 IF-INT-04 — Platform interfaces (C++ headers)
+### 3.9 IF-INT-04 — DTV SDK and platform interfaces (C++ headers)
 
-Provider: WP-PAL (implementations in `middleware/pal/`). Consumer: WP-AL (`middleware/core/`). The headers below are placed in `middleware/include/pal/` on `main` and are the normative form of this contract.
+Provider: WP-PAL (implementations in `middleware/pal/` over the HAL in `middleware/hal/`). Consumer: WP-AL (`middleware/core/`). The headers below are placed in `middleware/include/pal/` on `main` and are the normative form of this contract. The HAL has no interface towards the AL; it is reached only through the DTV SDK (`ITuner`, `IDemux`).
 
-#### 3.9.1 Rules common to all platform interfaces
+The DTV SDK follows the object lifecycle of the DTV SDKs of Lecture 6 (Nexus, Android Tuner SDK): *tune* the frontend, *open* a filter on a PID, *start* it, receive *filter events* with data, *stop* and *close* it. Mapping to the Android table-parsing flow of Lecture 6: `Tuner.openFilter` → `IDemux::open_filter`, `Filter.start` → `start_filter`, `onFilterEvent` + `Filter.read` → `DataCallback` (data delivered with the event).
 
-1. **Threads.** The PAL runs its own threads: one event-loop thread (HTTP client, HTTP/WebSocket server, timers) and one network receive thread. Callbacks into the AL are called **on these PAL threads**. The AL must not block in a callback for more than 10 ms; it hands the work to its own thread.
-2. **Thread safety.** All PAL methods may be called from any thread.
-3. **Buffer ownership.** Pointers passed to a callback are valid only during the callback; the AL copies what it needs. Data passed to a PAL method is copied by the PAL before the method returns.
-4. **Cancellation.** After `stop()`, `cancel()` or `cancel_timer()` returns, the corresponding callback is never called again.
-5. **Errors.** PAL methods do not throw exceptions; failures are reported by return values or by the result object passed to the callback.
+#### 3.9.1 Rules common to all interfaces
+
+1. **Threads.** The PAL and HAL run their own threads: one event-loop thread (HTTP client, HTTP/WebSocket server, timers) and one tuner receive thread, on which the demux, the descrambler and the filter callbacks also run. Callbacks into the AL are called **on these threads**. The AL must not block in a callback for more than 10 ms; it hands the work to its own thread.
+2. **Thread safety.** All interface methods may be called from any thread.
+3. **Buffer ownership.** Pointers passed to a callback are valid only during the callback; the AL copies what it needs. Data passed to an interface method is copied before the method returns.
+4. **Cancellation.** After `untune()`, `close_filter()`, `cancel()`, `cancel_timer()` or `Platform::stop()` returns, the corresponding callbacks are never called again.
+5. **Errors.** Interface methods do not throw exceptions; failures are reported by return values or by the result object passed to the callback.
 
 #### 3.9.2 Headers
 
@@ -1244,30 +1279,83 @@ namespace pal {
 
 constexpr std::size_t kTsPacketSize = 188;
 
-// ---------------------------------------------------------------- IP input
-// RTP over UDP reception (IF-EXT-05). Delivers the TS packets of each RTP packet.
-class INetReceiver {
-public:
-    struct Packet {
-        std::uint32_t ssrc;      // RTP SSRC of the packet (identifies the head-end session)
-        std::uint16_t seq;       // RTP sequence number
-        const std::uint8_t* ts;  // ts_count * 188 bytes, valid only during the callback
-        std::size_t ts_count;    // 1..7
-    };
-    struct Stats {
-        std::uint64_t rtp_packets;   // valid RTP packets received
-        std::uint64_t rtp_lost;      // gaps detected in sequence numbers
-        std::uint64_t rtp_invalid;   // datagrams dropped (bad header, PT != 33, size not n*188)
-    };
-    using PacketCallback = std::function<void(const Packet&)>;
+// ================================================================ DTV SDK
 
-    virtual ~INetReceiver() = default;
-    // Opens the UDP port and starts the receive thread. Returns false if the port cannot be opened.
-    virtual bool start(std::uint16_t udp_port, PacketCallback on_packet) = 0;
-    // Stops the receive thread; blocks until it has ended.
-    virtual void stop() = 0;
+// ---------------------------------------------------------------- Tuner (HAL-TUN)
+// IP tuner: receives MPEG-TS over RTP/UDP (IF-EXT-05) and feeds the demux.
+struct TuneParams {
+    std::uint16_t udp_port;   // receiver UDP port
+    std::uint32_t ssrc;       // only RTP packets with this SSRC are accepted
+};
+
+enum class TunerStatus { Unlocked, Locked };
+
+class ITuner {
+public:
+    struct Stats {
+        std::uint64_t rtp_packets;   // accepted RTP packets
+        std::uint64_t rtp_lost;      // gaps detected in sequence numbers
+        std::uint64_t rtp_invalid;   // datagrams dropped (bad header, PT != 33, other SSRC, size not n*188)
+    };
+    using StatusCallback = std::function<void(TunerStatus status)>;
+
+    virtual ~ITuner() = default;
+    // Must be called before Platform::start().
+    virtual void set_status_handler(StatusCallback on_status) = 0;
+    // Starts reception; replaces any previous tuning. The status is Unlocked after tune();
+    // it becomes Locked at the first accepted packet, Unlocked after 3 s without accepted packets,
+    // and Locked again when they return. Returns false if the port cannot be opened.
+    virtual bool tune(const TuneParams& params) = 0;
+    // Stops reception; no status callback and no demux data after it returns.
+    virtual void untune() = 0;
     virtual Stats stats() const = 0;
 };
+
+// ---------------------------------------------------------------- Demux + descrambler (HAL-DMX, HAL-DSC)
+enum class FilterType {
+    Section,   // delivers complete PSI sections (table_id … CRC_32; the CRC is not checked by the demux)
+    Ts         // delivers whole TS packets of the PID, one packet per callback
+};
+
+struct FilterConfig {
+    FilterType type;
+    std::uint16_t pid;
+    int table_id = -1;   // Section filters only: deliver only sections with this table_id; -1 = all
+};
+// Several filters (of any type) may be open on the same PID at the same time; each receives its own copy.
+
+class IDemux {
+public:
+    using FilterId = std::uint32_t;   // 0 = invalid
+    struct FilterData {
+        FilterId filter;
+        const std::uint8_t* data;   // section or one TS packet (188 bytes), valid only during the callback
+        std::size_t len;
+        bool scrambled;             // Ts filters: the packet was received with transport_scrambling_control != '00'
+                                    // (if a key is set for the PID, `data` is already decrypted and its bits are '00')
+    };
+    using DataCallback = std::function<void(const FilterData& data)>;
+    struct Stats {
+        std::uint64_t ts_packets;    // packets received from the tuner
+        std::uint64_t sync_errors;   // packets dropped because the sync byte is not 0x47
+        std::uint64_t cc_errors;     // continuity counter discontinuities
+    };
+
+    virtual ~IDemux() = default;
+    // Creates a stopped filter; returns 0 if it cannot be created.
+    virtual FilterId open_filter(const FilterConfig& config, DataCallback on_data) = 0;
+    virtual bool start_filter(FilterId id) = 0;
+    virtual void stop_filter(FilterId id) = 0;
+    // Destroys the filter; no callback for it after return.
+    virtual void close_filter(FilterId id) = 0;
+    // Descrambler: AES-128 key (16 bytes) for the given PIDs, applied according to D-04.
+    virtual void set_key(const std::uint16_t* pids, std::size_t pid_count, const std::uint8_t key[16]) = 0;
+    // Removes all descrambler keys.
+    virtual void clear_keys() = 0;
+    virtual Stats stats() const = 0;
+};
+
+// ================================================================ Other platform services
 
 // ---------------------------------------------------------------- HTTP client
 struct HttpResponse {
@@ -1305,7 +1393,7 @@ public:
 };
 
 // ---------------------------------------------------------------- HLS file store (IF-INT-02 storage)
-// Files of one session live in <hls_dir>/<session>/ and are served by the PAL under /hls/<session>/.
+// Files of one session live in <hls_dir>/<session>/ and are served under /hls/<session>/.
 class IHlsStore {
 public:
     using SessionId = std::uint64_t;
@@ -1321,16 +1409,6 @@ public:
     virtual bool remove_file(SessionId session, const std::string& name) = 0;
     // Removes the directory of `session` with all its files.
     virtual void close_session(SessionId session) = 0;
-};
-
-// ---------------------------------------------------------------- Cipher
-class ICipher {
-public:
-    virtual ~ICipher() = default;
-    // AES-128-CBC decryption in place, without padding. len must be a multiple of 16.
-    // Stateless and thread-safe. Returns false on invalid arguments or library error.
-    virtual bool decrypt_aes128_cbc(const std::uint8_t key[16], const std::uint8_t iv[16],
-                                    std::uint8_t* data, std::size_t len) = 0;
 };
 
 // ---------------------------------------------------------------- Clock and timers
@@ -1356,32 +1434,34 @@ public:
     virtual void log(LogLevel level, const char* module, const std::string& message) = 0;
 };
 
-// ---------------------------------------------------------------- Platform (factory)
+// ================================================================ Platform (factory)
 struct PlatformConfig {
-    std::uint16_t ui_http_port = 8090;   // IF-INT-01/02/03
-    std::string webui_dir = "webui";     // IF-INT-03
+    std::uint16_t ui_http_port = 8090;      // IF-INT-01/02/03
+    std::string webui_dir = "webui";        // IF-INT-03
+    std::string hls_dir = "/tmp/m15-hls";   // IF-INT-02; served under /hls/, emptied at start()
     std::string log_file = "logs/middleware.log";
-    std::string hls_dir = "/tmp/m15-hls";  // IF-INT-02; served under /hls/, emptied at start()
 };
 
 class Platform {
 public:
     virtual ~Platform() = default;
-    virtual INetReceiver& net() = 0;
+    // DTV SDK
+    virtual ITuner& tuner() = 0;
+    virtual IDemux& demux() = 0;
+    // Other platform services
     virtual IHttpClient& http() = 0;
     virtual IUiChannel& ui() = 0;
     virtual IHlsStore& hls() = 0;
-    virtual ICipher& cipher() = 0;
     virtual IClock& clock() = 0;
     virtual ILogger& logger() = 0;
     // Empties hls_dir, starts the event-loop thread and the HTTP/WebSocket server.
     // Returns false if the port cannot be opened or hls_dir cannot be created.
     virtual bool start() = 0;
-    // Stops all PAL threads; no callback is called after it returns.
+    // Stops all PAL and HAL threads; no callback is called after it returns.
     virtual void stop() = 0;
 };
 
-// Implemented by WP-PAL (Linux: sockets, OpenSSL, Mongoose).
+// Implemented by WP-PAL (Linux: sockets, OpenSSL, Mongoose; HAL in software).
 std::unique_ptr<Platform> create_platform(const PlatformConfig& config);
 
 }  // namespace pal
@@ -1396,7 +1476,7 @@ std::unique_ptr<Platform> create_platform(const PlatformConfig& config);
 | `SERVICE_NOT_FOUND` | IF-EXT-03, IF-EXT-04, IF-INT-01 | Unknown `service_id`. | "Invalid service number" |
 | `OUT_OF_ARCHIVE` | IF-EXT-04, IF-INT-01 (`error` state) | Requested time before the archive window. | "Content not available in archive" |
 | `FUTURE_TIME` | IF-EXT-04 | Requested time not in the past. | — (the AL sends `"live"` instead) |
-| `SESSION_NOT_FOUND` | IF-EXT-04 | Unknown or already stopped head-end session. | — (treated as success on stop) |
+| `SESSION_NOT_FOUND` | IF-EXT-04 | Unknown, stopped or expired head-end session. | — on stop (treated as success); "No signal" on keepalive (REQ-69) |
 | `MW_UNREACHABLE` | IF-INT-01 | OTT MW REST server not reachable or returned invalid data. | "Server not reachable" |
 | `HEADEND_UNREACHABLE` | IF-INT-01 (`error` state) | Head-end not reachable or returned an error. | "No signal" |
 | `INVALID_COMMAND` | IF-INT-01 | Malformed or unknown command. | — (logged; programming error) |

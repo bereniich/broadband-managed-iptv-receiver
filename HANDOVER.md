@@ -1,6 +1,6 @@
 # Handover — M15 specification work
 
-**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code). **Updated:** 2026-11-20 — browser playback switched to HLS (D-13).
+**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code). **Updated:** 2026-11-20 — browser playback switched to HLS (D-13). 2026-11-21 — layering aligned with the professor's lecture drawing (DTV SDK in PAL; tuner, SW demux, descrambler in HAL) and head-end keepalive (spec 0.11); professor's lecture notes and open questions added (§5a).
 **For:** the next team member (Lazar or Smilja) and their coding agent, to continue writing `SPECIFICATION.md` without access to the previous conversation.
 **Read first:** this file completely, then `SPECIFICATION.md` completely. The specification is the source of truth. This file explains how it was made, which rules apply and what comes next.
 
@@ -73,19 +73,42 @@ These rules shape the whole specification:
 | After an incorrect key followed by a correct one, where does playback start? | **It continues from where it was started** (the originally selected archive time T; live stays live). | D-14, REQ-49, REQ-52 |
 | (Suggestion from the professor, 2026-11-20) How should the DTV middleware deliver video to the Web application? | **Use HLS**; no separate server is expected. → The middleware writes HLS segments + playlist to a temporary directory, served by its existing HTTP server; the browser uses hls.js. | D-13, IF-INT-02, REQ-22 – REQ-25 |
 
+## 5a. Professor's lecture notes (2026-11-20) and what is still open
+
+Ivan's notes from the lecture, in short:
+
+- Use a **custom DTV middleware** (earlier generations used Comedia / Cuttlefish / iWedia, which was too complicated); borrowing the structure of Comedia from the lectures is allowed.
+- Application: HTML + CSS as View, JavaScript as Control (MVC/MVP); "special JavaScript code communicating through a plugin"; the drawing shows a box **"PMQ"** between "Web chrome" and "DTV MW" (meaning not known yet).
+- AL: Web chrome + **DTV MW (C/C++) with an "HLS SRV" inside**. PAL: **OS + DTV SDK**. HAL: **TUNER** (fed by `.TS`) **+ SW DMX**. Mandatory blocks: **DTV MW, DTV SDK, SW DMX**. → built into spec 0.11 (HLR-25, Section 2.2.3, IF-INT-04).
+- Content must be real `.TS` files; **TSDuck** (open-source C++ MPEG-TS toolkit) was recommended.
+- Managed: RTP server on localhost, simplest fixed server architecture; existing server libraries (Apache, …) are allowed; a few JSON responses from the OTT MW REST server.
+- Parsing is mandatory.
+- "Server stops, client stops?" → built into spec 0.11 (keepalive, REQ-67 – REQ-70).
+- "LLM — atomic" (small steps).
+- **Possibly conflicting with the current spec** (not yet changed, waiting for clarification):
+  - "Timeshift — happens in the DTV MW", "recording and viewing flows are different", "rewind back in seconds — a few seconds", "via a dialog", "one service". This reads like a **local timeshift in the middleware** (record the received stream, rewind a few seconds via a dialog), while the spec has a server-side archive (D-01), 30 s steps without a dialog (D-02, D-07), a looped archive (D-08) and 4 services (D-09).
+  - "TS demux not necessary for broadband managed?" (with a question mark) vs. "SW DMX mandatory".
+
+Open questions to resolve before changing D-01 / D-02 / D-07 / D-08 / D-09 and before freezing Section 3:
+
+1. Did the professor require the timeshift to be local in the DTV MW, or only mention it? (A question to him was prepared: "Da li je timeshift u DTV MW (snimanje primljenog streama i premotavanje nekoliko sekundi kroz dijalog) očekivano rešenje, ili je prihvatljiva arhiva na head-endu?")
+2. What does "one service" mean (one service in total, one protected service, one service per TS)?
+3. What is "PMQ", and is a browser plugin required, or is the local WebSocket (allowed by the general guidelines for Linux + Web) acceptable?
+4. Questions asked / to ask the professor daily (3 per day): server-side archive vs timeshift; looped 10-minute content; HTTP stream control instead of RTSP; incorrect key → message vs corrupted picture.
+
 ## 6. Team decisions and working preferences
 
 These were decided explicitly by the team during the session. Keep them unless the team changes them.
 
 1. **The specification is written in English.** Conversation with team members in Serbian (Latin script).
 2. **No "either is acceptable", "TBD" or open assumptions in the specification.** Where the task is not explicit, choose the variant that is **simplest to implement and integrate**, record it as a decision with a rationale, and write definite requirements.
-3. **Division of work by course layers is mandatory:** one member per layer — **WP-APP** (application, Web UI), **WP-AL** (application layer, DTV middleware core, C++17), **WP-PAL** (platform layer adapters in C++ + the operator side in Python: head-end, OTT MW REST server, packaging tool, content generator). The three layers are implemented **in parallel on separate Git branches** (`app`, `al`, `pal`). Contracts between layers (Section 3) must be frozen on `main` before coding.
+3. **Division of work by course layers is mandatory:** one member per layer — **WP-APP** (application, Web UI), **WP-AL** (application layer, DTV middleware core, C++17), **WP-PAL** (PAL = DTV SDK + platform services in C++, HAL = software tuner / demux / descrambler in C++, and the operator side in Python: head-end, OTT MW REST server, packaging tool, content generator). The three layers are implemented **in parallel on separate Git branches** (`app`, `al`, `pal`). Contracts between layers (Section 3) must be frozen on `main` before coding.
 4. **Who owns which layer is not decided yet.** The specification stays neutral: no names per work package.
 5. **For now only the specification is written.** No source code, no repository skeleton, no other files until the team says so.
 6. Internet is available at the defense, so hls.js is loaded from a CDN with a pinned version (HLR-21).
 7. Work step by step: one section (or subsection) per step, then a short summary to the team member for review.
 
-## 7. Current state of `SPECIFICATION.md` (version 0.10)
+## 7. Current state of `SPECIFICATION.md` (version 0.11)
 
 | Section | Status | Content |
 |---|---|---|
@@ -96,7 +119,7 @@ These were decided explicitly by the team during the session. Keep them unless t
 | 2.3 Functional requirements | done | REQ-01 … REQ-66, each with layer (APP / AL / PAL / SRV), source and verification method; traceability HLR → REQ. |
 | 2.4 Non-functional requirements | done | NFR-01 … NFR-17 (measurable). |
 | 2.5 Extensions | done | EXT-01 … EXT-11 (not mandatory). |
-| 3. Interface specification | done, **to be reviewed and frozen at I-1 (2026-11-21)** | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ platform header (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
+| 3. Interface specification | done, **to be reviewed and frozen at I-1 (2026-11-21)** | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ header with the DTV SDK (`ITuner`, `IDemux`) and platform services (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
 | 4. Design | **next** | See §8. |
 | 5. Verification plan | after Section 4 | See §8. |
 
@@ -109,7 +132,7 @@ These were decided explicitly by the team during the session. Keep them unless t
 | D-03 | The viewer types the key: 32 hex characters, kept in memory per service for the session. |
 | D-04 | One fixed AES-128 key per protected service; AES-128-CBC per TS packet payload of the A/V PIDs, IV = 0, residual < 16 B in clear; headers, adaptation fields, PAT, PMT in the clear; `transport_scrambling_control = '10'`; content encrypted offline. |
 | D-05 | Unicast RTP (RFC 2250, PT 33, 7 TS packets per RTP packet), no multicast. |
-| D-06 | Stream control with HTTP POST + JSON (`/start`, `/stop`), not RTSP. |
+| D-06 | Stream control with HTTP POST + JSON (`/start` with receiver-chosen SSRC, `/keepalive` every 5 s, `/stop`), not RTSP; the head-end stops sessions without keepalive for 15 s. |
 | D-07 | Rewind step 30 s. |
 | D-08 | Archive window 2 h; content file looped on wall-clock time (position = UNIX time mod file duration); EPG on the same cycle. |
 | D-09 | 4 services (SPTS), FFmpeg-generated H.264 720p25 + AAC, 10-minute files = 2 programs × 5 min, burned-in service name / title / time code; services 1, 2 clear; 3, 4 protected with different keys. |
@@ -126,7 +149,7 @@ Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL onl
 - **Loop boundary of the content (REQ-24):** when the 10-minute file wraps, PCR/PTS/DTS jump back by 600 s. The AL closes the segment and marks the next one with `#EXT-X-DISCONTINUITY`; hls.js is expected to handle this. Test early (NFR-06).
 - **HLS start position and latency:** playback must begin at the first segment of the playlist (hls.js `startPosition: 0`), otherwise the rewind would not start exactly at T (NFR-04, D-14). Verify this hls.js behavior at I-2. Zap time with HLS is longer than with a direct stream (NFR-01 allows 6 s to first picture).
 - **Browser playback path** (HLS files → hls.js → MSE) is the main integration risk; milestone I-2 exists to prove it early.
-- **WP-PAL is the largest work package** (C++ adapters + whole Python operator side). If it proves too large, SRV-PKG and SRV-GEN can move to WP-AL (the AL owner knows D-04 in detail anyway). This would be a change of Section 2.2.4 / 2.2.7.
+- **WP-PAL is the largest work package** (DTV SDK, HAL tuner / demux / descrambler and the whole Python operator side). The team has not yet decided whether to move the operator side (or SRV-PKG / SRV-GEN) to another work package; this would be a change of Section 2.2.4 / 2.2.7.
 - Section 3 has not yet been reviewed by the whole team; it must be agreed before 2026-11-21 (I-1).
 
 ## 8. Next steps
