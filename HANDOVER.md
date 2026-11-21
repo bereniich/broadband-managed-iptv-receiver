@@ -85,13 +85,13 @@ Ivan's notes from the lecture, in short:
 - Parsing is mandatory.
 - "Server stops, client stops?" → built into spec 0.11 (keepalive, REQ-67 – REQ-70).
 - "LLM — atomic" (small steps).
-- **Possibly conflicting with the current spec** (not yet changed, waiting for clarification):
+- **Seemed to conflict with the current spec** (the timeshift part is resolved, see question 1 below):
   - "Timeshift — happens in the DTV MW", "recording and viewing flows are different", "rewind back in seconds — a few seconds", "via a dialog", "one service". This reads like a **local timeshift in the middleware** (record the received stream, rewind a few seconds via a dialog), while the spec has a server-side archive (D-01), 30 s steps without a dialog (D-02, D-07), a looped archive (D-08) and 4 services (D-09).
   - "TS demux not necessary for broadband managed?" (with a question mark) vs. "SW DMX mandatory".
 
 Open questions to resolve before changing D-01 / D-02 / D-07 / D-08 / D-09 and before freezing Section 3:
 
-1. Did the professor require the timeshift to be local in the DTV MW, or only mention it? (A question to him was prepared: "Da li je timeshift u DTV MW (snimanje primljenog streama i premotavanje nekoliko sekundi kroz dijalog) očekivano rešenje, ili je prihvatljiva arhiva na head-endu?")
+1. ~~Timeshift local in the DTV MW or server-side archive?~~ **Resolved (2026-11-21):** the professor confirmed the server-side archive without a local timeshift buffer as a fully valid solution ("you have the freedom, implement and argue"). D-01, D-02, D-07, D-08 stay unchanged; the lecture remarks about a local timeshift do not apply.
 2. What does "one service" mean (one service in total, one protected service, one service per TS)?
 3. What is "PMQ", and is a browser plugin required, or is the local WebSocket (allowed by the general guidelines for Linux + Web) acceptable?
 4. Questions asked / to ask the professor daily (3 per day): server-side archive vs timeshift; looped 10-minute content; HTTP stream control instead of RTSP; incorrect key → message vs corrupted picture.
@@ -108,18 +108,18 @@ These were decided explicitly by the team during the session. Keep them unless t
 6. Internet is available at the defense, so hls.js is loaded from a CDN with a pinned version (HLR-21).
 7. Work step by step: one section (or subsection) per step, then a short summary to the team member for review.
 
-## 7. Current state of `SPECIFICATION.md` (version 0.11)
+## 7. Current state of `SPECIFICATION.md` (version 0.12)
 
 | Section | Status | Content |
 |---|---|---|
 | Header, conventions | done | Tags `[TASK]`, `[COMMON]`, `[GUIDELINES]`, `[D-xx]`. |
 | 1. User, goal, boundaries | done | Users, goals G-01 … G-09, context diagram, inputs (key bindings in 1.5.1), outputs, boundaries (built / reused / simulated, out of scope, external interfaces IF-EXT-01 … 06), **scope decisions D-01 … D-14**, user stories US-01 … US-22 with acceptance criteria, traceability. |
-| 2.1 High-level requirements | done | HLR-01 … HLR-24 from user goals, boundaries and technical constraints. |
+| 2.1 High-level requirements | done | HLR-01 … HLR-25 from user goals, boundaries and technical constraints. |
 | 2.2 Technical postulates | done | Standards and formats, signal path (Mermaid, numbered media / metadata / control arrows), layering (App / AL / PAL / HAL, portability rule), modules (APP-xx, AL-xx, PAL-xx, SRV-xx), key interfaces, design patterns, parallel development (branches, rules, stand-ins, milestones I-1 … I-5), versions of reused components. |
-| 2.3 Functional requirements | done | REQ-01 … REQ-66, each with layer (APP / AL / PAL / SRV), source and verification method; traceability HLR → REQ. |
+| 2.3 Functional requirements | done | REQ-01 … REQ-70, each with layer (APP / AL / PAL / HAL / SRV), source and verification method; traceability HLR → REQ. |
 | 2.4 Non-functional requirements | done | NFR-01 … NFR-17 (measurable). |
 | 2.5 Extensions | done | EXT-01 … EXT-11 (not mandatory). |
-| 3. Interface specification | done, **to be reviewed and frozen at I-1 (2026-11-21)** | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ header with the DTV SDK (`ITuner`, `IDemux`) and platform services (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
+| 3. Interface specification | done; **team review pending** — freeze as soon as the PMQ / plugin question (§5a, question 3) is answered | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ header with the DTV SDK (`ITuner`, `IDemux`) and platform services (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
 | 4. Design | **next** | See §8. |
 | 5. Verification plan | after Section 4 | See §8. |
 
@@ -150,7 +150,7 @@ Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL onl
 - **HLS start position and latency:** playback must begin at the first segment of the playlist (hls.js `startPosition: 0`), otherwise the rewind would not start exactly at T (NFR-04, D-14). Verify this hls.js behavior at I-2. Zap time with HLS is longer than with a direct stream (NFR-01 allows 6 s to first picture).
 - **Browser playback path** (HLS files → hls.js → MSE) is the main integration risk; milestone I-2 exists to prove it early.
 - **WP-PAL is the largest work package** (DTV SDK, HAL tuner / demux / descrambler and the whole Python operator side). The team has not yet decided whether to move the operator side (or SRV-PKG / SRV-GEN) to another work package; this would be a change of Section 2.2.4 / 2.2.7.
-- Section 3 has not yet been reviewed by the whole team; it must be agreed before 2026-11-21 (I-1).
+- Section 3 has not yet been reviewed by the whole team; milestone I-1 (2026-11-21) slipped because of the open PMQ / plugin question (it can change the transport of IF-INT-01 only).
 
 ## 8. Next steps
 
@@ -160,16 +160,18 @@ Planned subsections (adjust if needed, but cover everything the guidelines requi
 
 1. **4.1 Architecture block diagram** across **HAL, PAL, AL and application** (the course's Project 2 deliverable), with every module of 2.2.4 placed in its layer, marked built / reused / simulated. Mermaid.
 2. **4.2 AL internal design:** threading model (proposal: PAL callbacks only post tasks to one AL worker thread with a task queue, so AL state needs no locks), main data structures (service list, session object with generation number, kept start point, key store), module collaboration.
-3. **4.3 AL-SES session state machine:** states exactly as in IF-INT-01 §3.6.3 (`idle`, `starting`, `waiting_stream`, `key_required`, `validating_key`, `playing`, `no_signal`, `stopped`, `error`); events (play, HTTP ok / error, first data, PAT/PMT parsed, protection decided, set_key, key accepted / rejected, 5 s and 3 s timers, data resumed, stop); **state diagram (Mermaid `stateDiagram-v2`) + full transition table** (state × event → action, next state, emitted event).
+3. **4.3 AL-SES session state machine:** states exactly as in IF-INT-01 §3.6.3 (`idle`, `starting`, `waiting_stream`, `key_required`, `validating_key`, `playing`, `no_signal`, `stopped`, `error`); events (play, HTTP ok / error, tuner `Locked` / `Unlocked`, keepalive failure, PAT/PMT parsed, protection decided, set_key, key accepted / rejected, 5 s and 3 s timers, data resumed, stop); **state diagram (Mermaid `stateDiagram-v2`) + full transition table** (state × event → action, next state, emitted event).
 4. **4.4 Application design:** MVP structure (APP-MOD, APP-PRS, APP-VIEW, APP-KEY, APP-MWC), UI contexts (full-screen playback, number entry, service list, EPG, key dialog, info overlay) as a state diagram/transition table matching the key bindings of 1.5.1, how the model reacts to `session_state`, `stream_info`, `mw_status`; the timers (300 ms zap debounce, 500 ms seek accumulation, 2 s number commit, 5 s info, 2 s volume indicator).
-5. **4.5 Producer–consumer and buffers:** threads (PAL receive thread, PAL event loop, AL worker, head-end session threads), queues with capacity and overflow policy (RX → AL queue, validation hold buffer, HLS segment window of at most 10 files), who allocates and who frees each buffer.
+5. **4.5 Producer–consumer and buffers:** threads (HAL tuner receive thread with demux / descrambler / filter callbacks, PAL event loop, AL worker, head-end session threads), queues with capacity and overflow policy (RX → AL queue, validation hold buffer, HLS segment window of at most 10 files), who allocates and who frees each buffer.
 6. **4.6 UML sequence diagrams** (Mermaid `sequenceDiagram`). Implementation level (real command / event / function names from Section 3) for APP and AL; demonstration level for PAL and operator side. At least:
    - start-up: service list (+ MW not reachable variant),
+   - PSI acquisition through the DTV SDK (`tune` → `open_filter` PID 0 → `start_filter` → section data → PAT → PMT filter → PMT), in the style of the table-parsing flow of Lecture 6,
    - live zap of a clear service (play → /start → RTP → PAT/PMT → stream_info → first HLS segment → playing → hls.js loads `/hls/<n>/index.m3u8`),
    - archive from the EPG (get_epg → ENTER on an available event → play with T),
    - protected service: no key → key dialog → **incorrect key → key_rejected → correct key → playback from the same T** (the core M15 scenario),
    - rapid zapping / "latest request wins" (old session stopped, late events ignored),
    - `←`/`→` steps and return to live,
+   - head-end lost during playback (keepalive `SESSION_NOT_FOUND` → `error` → "No signal" → new `play` works),
    - one operator-side sequence (head-end `/start`: archive time → file position → PAT/PMT → paced RTP).
 7. **4.7 Operator-side design:** PCR index and time → position mapping, pacing algorithm, loop handling, packaging-tool algorithm (exact byte ranges per D-04), EPG generation formula on the 600 s cycle.
 8. **4.8 Error handling:** a matrix error → where detected → layer → reaction → message to the viewer → recovery, covering every error code of 3.10 and every negative case of the user stories.
@@ -177,7 +179,7 @@ Planned subsections (adjust if needed, but cover everything the guidelines requi
 ### 8.2 Section 5 — Verification plan
 
 - Test case format required by the guidelines: `TST-xx` → REQ/NFR → preconditions and input → steps → measurable expected result → actual result and evidence → status (passed / failed / not executed / not verifiable).
-- Levels: unit (per module, AL with fake PAL), integration (layer pairs over the real interfaces), acceptance (user stories in the target environment).
+- Levels: unit (per module, AL with a fake DTV SDK; HAL tuner / demux / descrambler separately), integration (layer pairs over the real interfaces), acceptance (user stories in the target environment).
 - Every REQ-xx and NFR-xx must be covered by at least one test; add a traceability table REQ → TST.
 - Include negative and concurrency cases (malformed JSON, bad CRC, random datagrams, server restart, rapid zapping, key entered during an ongoing start).
 - Independent verification: `ffprobe -show_programs -show_streams` for content and output streams, burned-in time code for rewind accuracy, `tcpdump` on loopback plus a search for the key bytes (NFR-08), log evidence.
@@ -186,7 +188,7 @@ Planned subsections (adjust if needed, but cover everything the guidelines requi
 
 ### 8.3 After the specification
 
-1. Team review of Section 3 and freeze at I-1 (2026-11-21), merged to `main`.
+1. Team review of Section 3 and freeze (after the PMQ / plugin question), merged to `main`.
 2. Only when the team says so: repository skeleton on `main` (directories of 2.2.7, `middleware/include/pal/platform.hpp` from Section 3.9.2, empty CMake targets), then branches `app`, `al`, `pal`.
 3. Update the document header (version, status) after every step.
 

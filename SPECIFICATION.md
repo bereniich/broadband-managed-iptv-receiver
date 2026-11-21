@@ -9,8 +9,8 @@
 | Team | Lazar Zubović (RA 13/2023), Smilja Krulj (RA 145/2023), Ivan Berenić (RA 59/2023) |
 | Implementation variant | Linux + Web |
 | Defense | 2026-12-03 |
-| Document version | 0.11 (draft): layering aligned with the lecture (DTV SDK in PAL; tuner, SW demux, descrambler in HAL); head-end keepalive for a stopped receiver |
-| Status | Sections 1, 2, 3 — done (Section 3 to be frozen at I-1); Section 4 (design) and Section 5 (verification plan) — next |
+| Document version | 0.12 (draft): D-01 rationale completed (server-side archive confirmed by course staff) |
+| Status | Sections 1, 2, 3 — done (Section 3: team review pending before freeze); Section 4 (design) and Section 5 (verification plan) — next |
 
 ### Document conventions
 
@@ -227,7 +227,7 @@ Where the task does not prescribe a solution, the team fixed the variant that is
 
 | ID | Topic | Decision | Rationale |
 |---|---|---|---|
-| D-01 | Source of previously broadcast content | **Server-side archive (network catch-up).** The head-end can stream every service from any moment inside the archive window. The receiver has no local timeshift buffer and no storage. | Rewind becomes just a new stream request with a start time; the receiver needs no disk buffer or index. |
+| D-01 | Source of previously broadcast content | **Server-side archive (network catch-up).** The head-end can stream every service from any moment inside the archive window. The receiver has no local timeshift buffer and no storage. | The task asks for a *previously broadcast* program, which a local buffer cannot contain if the receiver was not on at that time. Rewind becomes just a new stream request with a start time; the receiver needs no disk buffer or index, and still parses PAT/PMT, decrypts and validates the key for every rewind. Confirmed as a valid solution by course staff. |
 | D-02 | How the viewer selects a time | (a) **EPG:** selecting an available past program and pressing `ENTER` starts it from the program's start time. (b) **Step keys:** `←` / `→` move the playback position by **30 s** back / forward, relative to the current position. `B` returns to live. Moving forward past the live point switches to live. Moving back past the start of the archive window stops at the window start. | Both methods reuse the same "start at time T" request; no separate time-entry dialog is needed. |
 | D-03 | Source of the decryption key | **The viewer enters the key** in the key dialog: exactly 32 hexadecimal characters (`0–9`, `A–F`), representing a 128-bit key. The key is kept by the middleware in memory, per service, for the running session; it is not written to disk. | Correct and incorrect key are demonstrated simply by typing two different keys; no authorization logic on the server; uses "letters for dialogs" from the task. |
 | D-04 | Protection scheme | **One fixed AES-128 key per protected service**, the same for live and archive, never changing. **Encrypted:** the payload of TS packets carrying the audio and video PIDs. **Mode:** AES-128-CBC, IV = 16 zero bytes, restarted for every TS packet; the largest multiple of 16 bytes from the payload start is encrypted, the remaining bytes (fewer than 16) stay in the clear. **In the clear:** TS headers, adaptation fields (including PCR), PAT and PMT. **Signalling:** encrypted packets have `transport_scrambling_control = '10'`, all others `'00'`. The receiver detects protection from these bits; no CA descriptor, ECM or EMM is used. Content files are encrypted once, offline, by the team's packaging tool. | Fixed key as confirmed by course staff; per-packet encryption with the header in the clear follows the scrambling model of Lecture 3 (headers and PSI readable, payload protected); offline encryption keeps the head-end a plain file streamer. |
