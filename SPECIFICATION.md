@@ -9,7 +9,7 @@
 | Team | Lazar Zubović (RA 13/2023), Smilja Krulj (RA 145/2023), Ivan Berenić (RA 59/2023) |
 | Implementation variant | Linux + Web |
 | Defense | 2026-12-03 |
-| Document version | 1.1 — **frozen** (2026-11-22): consistency fixes of the design (data path before the `/start` response, `stream_info`, `playing_since`, segment bound 8, keepalive loss = 3 failed keepalives, head-end expiry ≤ 16 s, archive pacing keeps the D-08 timeline, UI reconnect, layering rule R1, Node.js test command, start commands of the processes, error body of IF-EXT-04); 1.0 (2026-11-22): Sections 1 – 5 complete and confirmed by the team |
+| Document version | 1.1 — **frozen** (2026-11-22): merge of two review rounds of version 1.0 — (a) Lazar: operator side in C++17 (team decision), TST-711 with unmasked WebSocket frames, PAT/PMT period 0.09 s, listening addresses `127.0.0.1`, playback position from the first picture, test corrections (TST-215, TST-607, TST-619, TST-625, TST-706), HLR-17 and the CDN; (b) Ivan: data path before the `/start` response, `stream_info` without `scrambled`, `playing_since` for the UI reconnect, segment bound 8 (the oldest segment is removed before a new one is written), keepalive loss = 3 failed keepalives, head-end expiry ≤ 16 s, archive pacing keeps the D-08 timeline, layering rule R1, Node.js test command, start commands of the processes, error body of IF-EXT-04; (c) at the merge: SRV-PKG moved to WP-APP (two D-04 implementations by different members), operator side built with the CMake project of `middleware/` into `build/bin/`, third-party sources in `third_party/`. 1.0 (2026-11-22): Sections 1 – 5 complete and confirmed by the team |
 | Status | Frozen. Changes only on `main`, with the agreement of the owners concerned (rule 2 of Section 2.2.7), each with a new document version; only Section 5.9 (test results) is updated without a version change |
 
 ### Document conventions
@@ -166,7 +166,7 @@ The task prescribes the key categories (arrows, ENTER, digits, letters for dialo
 | Video and audio | Decoded program of the selected service, live or from the archive, in full screen. |
 | Info dialog (OSD) | Shown on every service change: service number and name, current program (title, start–end time), LIVE or ARCHIVE indicator with the playback time, protection status ("Clear", "Protected – key OK", "Protected – key required"). |
 | Service list (OSD) | List of services with numbers and names, protected services marked, the current one highlighted. |
-| EPG / TV guide (OSD) | Programs per service on a time axis; past programs inside the archive window marked as available. |
+| EPG / TV guide (OSD) | Programs per service on a time axis; past programs inside the archive window marked as available; "No information" for a service without EPG data. |
 | Playback position indicator | In ARCHIVE mode: the playback time and the distance from live (e.g. "−01:30"). |
 | Key dialog | Masked entry of the decryption key with a character counter (n/32), titled "Enter the decryption key" or "Incorrect decryption key". |
 | Volume / mute indicator | Current volume level and mute state. |
@@ -219,7 +219,7 @@ Note [GUIDELINES]: the use of a ready-made player for decoding does **not** repl
 | IF-EXT-05 | MPEG-TS over RTP/UDP | Streaming head-end → receiver | In |
 | IF-EXT-06 | Configuration and content files | Operator → server side; local config → receiver | In |
 
-Internal interfaces (Web application ↔ native middleware, middleware ↔ player) are defined in the architecture section.
+Internal interfaces (Web application ↔ native middleware, middleware ↔ player) are defined in Sections 2.2.5 and 3.
 
 ### 1.8 Scope decisions
 
@@ -448,14 +448,14 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 | HLR-14 | The system shall include the operator (production) side built by the team: a packaging tool that encrypts content, a streaming head-end and an OTT MW REST server. | [TASK]; Section 1.7.1 | I, D |
 | HLR-15 | The head-end shall deliver any configured service, live or from any moment of the archive window, as a unicast MPEG-TS over RTP stream, started and stopped on the receiver's request. | [TASK]; D-01, D-05, D-06, D-08 | T |
 | HLR-16 | Protected content shall leave the operator side only in encrypted form; the decryption key shall never be sent to or from the operator side; inside the receiver it travels only from the Web application to the DTV middleware (IF-INT-01) and from the AL to the DTV SDK (IF-INT-04). | D-03, D-04 | I, A |
-| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06; it shall not store content, keys or archive data persistently. The only content written to disk are the temporary HLS files of the current session (D-13): at most 8 segment files at a time (including the one being written), deleted when the session ends and at start-up. | Section 1.7.3; D-01, D-03, D-13 | I, T |
+| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06 and, for the Web application, the download of the player library from the CDN (HLR-21); it shall not store content, keys or archive data persistently. The only content written to disk are the temporary HLS files of the current session (D-13): at most 8 segment files at a time (including the one being written), deleted when the session ends and at start-up. | Section 1.7.3; D-01, D-03, D-13 | I, T |
 
 #### 2.1.3 Requirements derived from technical constraints
 
 | ID | Requirement | Source | Verification |
 |---|---|---|---|
 | HLR-18 | The receiver shall follow the Linux + Web variant: the user interface is a Web application (HTML, CSS, JavaScript) running in a browser; the DTV logic runs in a separate native process on Linux, implemented in C++17 and built with CMake. | Team choice of variant; [GUIDELINES] | I |
-| HLR-19 | The server side (packaging tool, head-end, OTT MW REST server) shall be implemented in Python 3. | [GUIDELINES] (helper services in Python are allowed) | I |
+| HLR-19 | The server side (packaging tool, head-end, OTT MW REST server) shall be implemented in C++17 and built with CMake in the same project as the receiver; only the content generator is a shell script that calls FFmpeg. | Team decision (2026-11-22): everything that can be done in C/C++ is done in C/C++ | I |
 | HLR-20 | The complete system shall run on one laptop with Ubuntu 24.04 LTS, using only the loopback network interface, with the Web application in Chromium in full-screen kiosk mode. | D-12 | D |
 | HLR-21 | The Web application shall load the browser player library (hls.js) from a public CDN with an exact, pinned version number; Internet access is available in the runtime environment. All other system components (servers, native middleware, test content) shall run locally without Internet access. | D-12, D-13 | I, D |
 | HLR-22 | The system shall use the standards and formats defined in Section 2.2 (MPEG-TS, PSI, RTP, H.264, AAC, AES-128, HTTP/JSON, WebSocket, HLS). | [TASK]; D-04, D-05, D-09, D-13 | I, A |
@@ -514,7 +514,7 @@ Three kinds of paths are distinguished:
 
 ```mermaid
 flowchart LR
-    subgraph OP["Operator side — head-end and OTT MW (WP-PAL)"]
+    subgraph OP["Operator side — head-end and OTT MW (WP-PAL); packaging tool (WP-APP)"]
         SRC[("Clear TS files")] -->|"1 · TS (offline)"| PKG["Packaging tool<br/>AES-128 encryption"]
         PKG -->|"2 · encrypted TS files"| HE["Head-end<br/>archive timeline + RTP sender"]
         MWS["OTT MW REST server<br/>services · EPG"]
@@ -605,7 +605,7 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | HAL — tuner, demux, descrambler | IP tuner (RTP/UDP reception), software demultiplexer, software descrambler | Built — **software simulation of hardware blocks** | **WP-PAL** |
 | HAL — drivers | Linux network stack (loopback), GPU/audio drivers used by the browser | Reused, not modified; the operator network is simulated by loopback | — |
 
-**Operator side.** The head-end, the OTT MW REST server and the packaging tool are not layers of the receiver; they are the production / distribution side of the signal path. They are implemented by **WP-PAL**, which is responsible for the whole path up to "filter data enters the DTV middleware" — the role of the front-end in the broadcast receiver of Lecture 2. The operator side is layered internally into a **domain layer** (archive timeline, EPG generation, session management, encryption) and an **I/O layer** (HTTP handlers, UDP sending, file access).
+**Operator side.** The head-end, the OTT MW REST server and the packaging tool are not layers of the receiver; they are the production / distribution side of the signal path. They are implemented by **WP-PAL**, which is responsible for the whole path up to "filter data enters the DTV middleware" — the role of the front-end in the broadcast receiver of Lecture 2 — except the offline packaging tool SRV-PKG, which **WP-APP** writes, so that the two implementations of D-04 (SRV-PKG and HAL-DSC) come from different members (Section 5.1.7, rule 6). The operator side is layered internally into a **domain layer** (archive timeline, EPG generation, session management, encryption) and an **I/O layer** (HTTP handlers, UDP sending, file access).
 
 **Portability rule.** The AL library `dtvcore` depends only on the C++17 standard library, nlohmann/json and the DTV SDK and platform interface headers of IF-INT-04 — never on HAL code, Mongoose, OpenSSL or socket calls. This is verifiable by inspection of its CMake target (no link dependency on `hal`, `ssl`, `crypto` or `mongoose`). Platform-dependent code lives only in the libraries `pal` and `hal`. This is the same role as the DTV SDK wrappers of Lecture 6 and the glue layer (Comedia CHAL) of Lecture 7: the AL can be unit-tested with a fake DTV SDK and moved to another platform by replacing the PAL and HAL.
 
@@ -636,7 +636,7 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | WP-PAL (HAL) | Software demultiplexer | HAL-DMX | TS sync check, continuity counter check, PID filtering, assembly of PSI sections (also over several TS packets), routing of packets to the descrambler and to the filters. |
 | WP-PAL (HAL) | Software descrambler | HAL-DSC | Decryption of the packets of PIDs with a key set, according to D-04 (OpenSSL libcrypto); clears the scrambling bits. |
 | WP-PAL (operator side) | Content generator | SRV-GEN | FFmpeg script that generates the four clear content files according to D-09 and Section 2.2.1. |
-| WP-PAL (operator side) | Packaging tool | SRV-PKG | Command-line tool: reads a clear TS file and a key, writes the encrypted TS file according to D-04. |
+| WP-APP (operator side, offline tool) | Packaging tool | SRV-PKG | Command-line tool: reads a clear TS file and a key, writes the encrypted TS file according to D-04. Written by WP-APP, not by the author of HAL-DSC (Section 5.1.7, rule 6). |
 | WP-PAL (operator side) | Head-end — control API | SRV-HEC | HTTP stream control API (IF-EXT-04): validates requests, creates, keeps alive and stops sessions; stops sessions without keepalive. |
 | WP-PAL (operator side) | Head-end — archive timeline | SRV-ARC | Maps a requested UNIX time to a file position (D-08), using a PCR index built when the file is loaded; checks the archive window. |
 | WP-PAL (operator side) | Head-end — RTP sender | SRV-RTP | Per session: sends PAT/PMT first, then TS packets from the computed position, paced by PCR, packed 7 per RTP packet with the session's SSRC (IF-EXT-05). |
@@ -655,7 +655,7 @@ These interfaces are the **contracts between layers and work packages**. Their e
 | IF-EXT-03 | OTT MW REST API | SRV-MW → AL-SVC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP GET, JSON | Service list, service info (head-end control URL, archive window), EPG events for a time range. | `http://127.0.0.1:8080` |
 | IF-EXT-04 | Stream control API | SRV-HEC → AL-HEC (via PAL-HTTP) | **WP-PAL ↔ WP-AL** | HTTP POST, JSON | `start` (service, start point "live" or UNIX time, receiver UDP port, SSRC) → session id; `keepalive` (session id) every 5 s; `stop` (session id). | `http://127.0.0.1:8081` |
 | IF-EXT-05 | Media stream | SRV-RTP → HAL-TUN; TS content → AL-PSI, AL-DSC, AL-OUT | **WP-PAL ↔ WP-AL** (TS content rules of Section 3.4; the RTP layer is within WP-PAL) | RTP/UDP, RFC 2250 | MPEG-TS of one service, encrypted per D-04 for protected services. | UDP `127.0.0.1:5004` |
-| IF-INT-05 | Content configuration and files | SRV-PKG → SRV-ARC / SRV-RTP, SRV-MW | within WP-PAL | Files + JSON content configuration | Encrypted TS files and the mapping service → file → protection. | `content/` directory |
+| IF-INT-05 | Content configuration and files | SRV-PKG → SRV-ARC / SRV-RTP, SRV-MW | WP-APP (SRV-PKG) ↔ WP-PAL; files only, no frozen code interface | Files + JSON content configuration | Encrypted TS files and the mapping service → file → protection. | `content/` directory |
 
 Ports are defaults; every component reads them from its configuration file. The interfaces marked in bold are the ones that must be frozen at milestone I-1, because two different team members implement their two sides.
 
@@ -678,11 +678,11 @@ The system is developed by three team members in parallel, **one layer per membe
 
 | Work package | Layer | Branch | Directories | Modules | Stand-ins for the neighboring layers during development |
 |---|---|---|---|---|---|
-| WP-APP | Application | `app` | `webui/` | APP-MWC, APP-MOD, APP-KEY, APP-PRS, APP-VIEW | Mock middleware script (`webui/mock/`) that serves the Web application files, answers IF-INT-01 commands with the JSON examples of Section 3, emits scripted events (including "key required" and "key rejected") and serves an HLS live stream made from a clear content file with `ffmpeg -re -i <file>.ts -c copy -f hls -hls_time 1 -hls_list_size 6 -hls_flags delete_segments` as IF-INT-02. |
+| WP-APP | Application (and the offline packaging tool of the operator side) | `app` | `webui/`, `server/package/` | APP-MWC, APP-MOD, APP-KEY, APP-PRS, APP-VIEW, SRV-PKG | Mock middleware script (`webui/mock/`) that serves the Web application files, answers IF-INT-01 commands with the JSON examples of Section 3, emits scripted events (including "key required" and "key rejected") and serves an HLS live stream made from a clear content file with `ffmpeg -re -i <file>.ts -c copy -f hls -hls_time 1 -hls_list_size 6 -hls_flags delete_segments` as IF-INT-02. |
 | WP-AL | Application layer — DTV middleware | `al` | `middleware/core/`, `middleware/main/` | AL-API, AL-SVC, AL-SES, AL-HEC, AL-PSI, AL-DSC, AL-OUT, AL-MAIN | Fake DTV SDK and platform implementations in the unit tests (`middleware/core/tests/fakes/`): tuner and demux fed from a clear or encrypted TS file (lock event, section and TS filter callbacks, descrambling by a reference implementation of D-04), HTTP client returning the JSON examples of Section 3, scripted UI channel, HLS store writing to a temporary directory (playlist and segments checked with `ffprobe` / `ffplay`), controllable clock. No network is needed to test the AL. |
-| WP-PAL | Platform layer (DTV SDK) + HAL + operator side | `pal` | `middleware/pal/`, `middleware/hal/`, `server/`, `content/` | PAL-SDK, PAL-HTTP, PAL-WS, PAL-FS, PAL-CLK, PAL-LOG, HAL-TUN, HAL-DMX, HAL-DSC, SRV-GEN, SRV-PKG, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs (`middleware/pal/tools/`), e.g. tune → open a section filter on PID 0 → print PAT sections; tune → TS filter → write a TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
+| WP-PAL | Platform layer (DTV SDK) + HAL + operator side | `pal` | `middleware/pal/`, `middleware/hal/`, `server/` (except `server/package/`), `content/` | PAL-SDK, PAL-HTTP, PAL-WS, PAL-FS, PAL-CLK, PAL-LOG, HAL-TUN, HAL-DMX, HAL-DSC, SRV-GEN, SRV-HEC, SRV-ARC, SRV-RTP, SRV-MW | Small test programs (`middleware/pal/tools/`), e.g. tune → open a section filter on PID 0 → print PAT sections; tune → TS filter → write a TS file → `ffprobe`; until the own head-end works, RTP is produced with `ffmpeg -re -i <file>.ts -c copy -f rtp_mpegts rtp://127.0.0.1:5004`. Server side checked with `curl`, `ffprobe` and `ffplay`. |
 
-Shared files, changed only on `main` and merged into all branches: `SPECIFICATION.md`, the platform interface headers `middleware/include/pal/` (IF-INT-04), the top-level `middleware/CMakeLists.txt`, `scripts/` (start/stop scripts), `README.md`.
+Shared files, changed only on `main` and merged into all branches: `SPECIFICATION.md`, the platform interface headers `middleware/include/pal/` (IF-INT-04), the top-level `middleware/CMakeLists.txt` (which also adds `server/` as a subdirectory, Section 4.7), the reused third-party sources in `third_party/` (Mongoose, nlohmann/json; used by the receiver and the operator side), `scripts/` (start/stop scripts), `README.md`.
 
 **Rules:**
 
@@ -711,11 +711,10 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 | Ubuntu | 24.04 LTS | All | Development and runtime OS |
 | GCC (g++) | 13.3 | WP-AL, WP-PAL | C++17 compiler |
 | CMake | 3.28 | WP-AL, WP-PAL | Build system |
-| OpenSSL (libcrypto) | 3.0.13 | WP-PAL (HAL-DSC only) | AES-128-CBC decryption |
-| Mongoose | 7.23 | WP-PAL (PAL-HTTP, PAL-WS only) | HTTP client, HTTP server, WebSocket server (single source file) |
-| nlohmann/json | 3.12.0 | WP-AL | JSON parsing and generation |
-| Python | 3.12 | WP-PAL (operator side) | Head-end, OTT MW server, packaging tool (standard library `http.server`, `socket`, `threading`, `json`) |
-| python3-cryptography | Ubuntu 24.04 package | WP-PAL (SRV-PKG) | AES-128-CBC encryption |
+| OpenSSL (libcrypto) | 3.0.13 | WP-PAL (HAL-DSC), WP-APP (SRV-PKG): two separate implementations by different members, rule R5 | AES-128-CBC decryption (HAL-DSC) and encryption (SRV-PKG) |
+| Mongoose | 7.23 | WP-PAL (PAL-HTTP, PAL-WS; SRV-HEC, SRV-MW) | HTTP client, HTTP server, WebSocket server (single source file) |
+| nlohmann/json | 3.12.0 | WP-AL; WP-PAL (operator side) | JSON parsing and generation |
+| Python | 3.12 | Verification and development stand-ins only | Test tools of `tests/tools/` and `tests/acceptance/` and the mock middleware of WP-APP (`webui/mock/`, Section 2.2.7), standard library only; no component of the system is written in Python (HLR-19) |
 | FFmpeg / ffprobe | 6.1.1 | WP-PAL (SRV-GEN), all (verification) | Content generation; independent inspection of TS files |
 | Chromium | Ubuntu 24.04 package | WP-APP | Runtime of the Web application (kiosk mode) |
 | hls.js | 1.7.4, loaded from jsDelivr | WP-APP | HLS playback (TS demux in JavaScript, playback through MSE) [HLR-21] |
@@ -727,7 +726,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 
 ### 2.3 Detailed functional requirements
 
-All requirements in this section are **mandatory**. Each requirement names the layer that implements it (**APP**, **AL**, **PAL**, **HAL**, or **SRV** for the operator side; PAL, HAL and SRV are implemented by WP-PAL), its source and its verification method (Section 2, legend). Test cases (`TST-xx`) that verify each requirement are defined in Section 5. Where a requirement involves two layers, the layer named first owns the behavior and the other one only provides what the interfaces of Section 3 define.
+All requirements in this section are **mandatory**. Each requirement names the layer that implements it (**APP**, **AL**, **PAL**, **HAL**, or **SRV** for the operator side; PAL, HAL and SRV are implemented by WP-PAL, except SRV-PKG (REQ-63), which WP-APP implements), its source and its verification method (Section 2, legend). Test cases (`TST-xx`) that verify each requirement are defined in Section 5. Where a requirement involves two layers, the layer named first owns the behavior and the other one only provides what the interfaces of Section 3 define.
 
 #### 2.3.1 Start-up and service list
 
@@ -903,8 +902,8 @@ Measured values refer to the demo laptop (D-12) with all components running.
 | NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. When the middleware process is stopped, the head-end shall stop sending its stream within 3 s for an orderly stop (`POST /stop`, REQ-70, Section 4.2.5) and at most 16 s after the stop when the process is killed (REQ-68). | T |
 | NFR-08 | Security of keys | No component of the system shall write a key to a log file or any other file, or send it in any network traffic other than the local control WebSocket (IF-INT-01). The test keys appear only in the test data documentation (Section 5.2.2, NFR-17) and in the test code and scripts that use them. Verified by inspection of the code, by searching the log files for the test keys, and by searching a loopback packet capture of a full demo run for the key bytes outside IF-INT-01. | I, A |
 | NFR-09 | Portability | The AL library `dtvcore` shall build and pass its unit tests without OpenSSL, Mongoose, socket or HAL headers, using only the C++17 standard library, nlohmann/json and the IF-INT-04 headers (DTV SDK and platform interfaces). | I, T |
-| NFR-10 | Testability | Unit tests shall exist at least for AL-PSI, AL-DSC, AL-OUT and AL-SES (with a fake DTV SDK), for HAL-TUN, HAL-DMX and HAL-DSC, for each PAL module, and for SRV-PKG (encryption round trip) and SRV-ARC (time → position). Native tests shall run with one `ctest` command, server tests with one `python3 -m unittest` command, Web application tests with one documented command. | I, T |
-| NFR-11 | Code quality | C++ code shall compile with `-Wall -Wextra` without warnings; Python code shall use only the standard library and `cryptography`; the Web application shall be plain ES2020 modules without a build step. | I |
+| NFR-10 | Testability | Unit tests shall exist at least for AL-PSI, AL-DSC, AL-OUT and AL-SES (with a fake DTV SDK), for HAL-TUN, HAL-DMX and HAL-DSC, for each PAL module, and for SRV-PKG (encryption round trip) and SRV-ARC (time → position). Native tests of the receiver and of the operator side shall run with one `ctest` command, Web application tests with one documented command. | I, T |
+| NFR-11 | Code quality | C++ code shall compile with `-Wall -Wextra` without warnings; the Python test tools shall use only the standard library; the Web application shall be plain ES2020 modules without a build step. | I |
 | NFR-12 | Operability | One script (`scripts/start.sh`) shall start the OTT MW server, the head-end, the middleware and Chromium in kiosk mode within 15 s, checking that each component has opened its port and stopping with an error message naming the component that failed; one script (`scripts/stop.sh`) shall stop all components. | D |
 | NFR-13 | Logging | Every component shall write timestamped log lines (`<ISO time> <LEVEL> [<module>] <message>`, ISO 8601 local time with milliseconds, e.g. `2026-12-03T10:15:42.317`) to `logs/<component>.log`; the logs of a demo run shall contain the evidence listed in REQ-59. | I |
 | NFR-14 | Usability | The OSD shall be readable on the projector: text at least 28 px high at 1920×1080, light text on a dark semi-transparent background; all texts in English. | D |
@@ -1108,7 +1107,7 @@ Provider: SRV-RTP (WP-PAL). Consumer: HAL-TUN (WP-PAL). The content of the packe
 
 ### 3.5 IF-INT-05 — Content configuration (operator side)
 
-Internal to WP-PAL; documented because the start scripts and the test data set (US-22) depend on it. File `content/services.json`:
+Between the operator-side modules (SRV-ARC, SRV-RTP, SRV-MW of WP-PAL and the packaging tool SRV-PKG of WP-APP); documented because the start scripts and the test data set (US-22) depend on it. File `content/services.json`:
 
 ```json
 {
@@ -1196,8 +1195,8 @@ Behavior that the UI may rely on:
 | `state` | One of the states below. |
 | `reason` | Additional reason for `key_required` and `no_signal`, otherwise `null`. |
 | `start` | Requested start point after clamping: `"live"` or `T`. |
-| `start_time` | UNIX time of the first content of the stream (from IF-EXT-04), `null` until known. |
-| `playing_since` | UNIX time at which the session first entered `playing` (the first segment was listed), `null` before. The UI computes the playback position as `start_time + (now − playing_since)`: the player starts with the first segment, which begins at `start_time`, and the head-end keeps the content timeline of D-08 in real time, also during `no_signal` (Section 4.7.5), so the formula stays valid after a return from `no_signal` and after a reconnect of the UI. |
+| `start_time` | UNIX time of the first content of the stream (from IF-EXT-04), `null` until known. The UI computes the playback position as `start_time + (now − time at which the player showed the first picture of the session)`, taking that time from the `playing` event of the `<video>` element and not from the `session_state` event, because the HLS player shows the first picture 1 – 2 s after the first segment is listed. The head-end keeps the content timeline of D-08 in real time, also during `no_signal` (Section 4.7.5), so the formula stays valid after a return from `no_signal` (up to the restart delay of the player after the gap). |
+| `playing_since` | UNIX time at which the session first entered `playing` (the first segment was listed), `null` before. `start_time + (now − playing_since)` is the content time that the session has reached (a player started at that moment shows it 1 – 2 s later); the UI uses it when it has no player of a running session, after a reconnect (Section 4.4.4). |
 | `protected` | `true` when scrambled A/V packets were detected, `false` for a clear stream, `null` until decided (REQ-44; again `null` after a restart by `set_key`). |
 | `error` | Error object for state `error`, otherwise `null`. |
 
@@ -1521,12 +1520,12 @@ At run time the system consists of four processes on the demo laptop (D-12), plu
 |---|---|---|---|---|---|
 | P1 Browser | Chromium in kiosk mode, page `http://127.0.0.1:8090/` | HTML, CSS, JavaScript | APP-KEY, APP-MOD, APP-PRS, APP-VIEW, APP-MWC; hls.js (reused) | — | P2: IF-INT-01, IF-INT-02, IF-INT-03 |
 | P2 DTV middleware | `dtv-middleware` (built from `middleware/main/`, linked with the libraries `dtvcore`, `pal`, `hal`) | C++17 | AL-API, AL-SVC, AL-SES, AL-HEC, AL-PSI, AL-DSC, AL-OUT, AL-MAIN; PAL-SDK, PAL-HTTP, PAL-WS, PAL-FS, PAL-CLK, PAL-LOG; HAL-TUN, HAL-DMX, HAL-DSC | TCP 8090 (HTTP + WebSocket), UDP 5004 (RTP) | P3: IF-EXT-04; P4: IF-EXT-03 |
-| P3 Head-end | `server/headend.py` | Python 3.12 | SRV-HEC, SRV-ARC, SRV-RTP | TCP 8081 (HTTP) | P2: IF-EXT-05 (UDP 5004) |
-| P4 OTT MW server | `server/mw_server.py` | Python 3.12 | SRV-MW | TCP 8080 (HTTP) | — |
+| P3 Head-end | `headend` (built from `server/headend/`) | C++17 | SRV-HEC, SRV-ARC, SRV-RTP | TCP 8081 (HTTP) | P2: IF-EXT-05 (UDP 5004) |
+| P4 OTT MW server | `mw_server` (built from `server/mw/`) | C++17 | SRV-MW | TCP 8080 (HTTP) | — |
 | Offline tool | `content/generate.sh` | Shell + FFmpeg | SRV-GEN | — | — |
-| Offline tool | `server/package.py` | Python 3.12 | SRV-PKG | — | — |
+| Offline tool | `package_ts` (built from `server/package/`) | C++17 | SRV-PKG | — | — |
 
-P3 and P4 read `content/services.json` (IF-INT-05); P3 additionally reads the encrypted and clear content files listed there. The start order of `scripts/start.sh` is P4, P3, P2, P1 (NFR-12): every process only connects to processes started before it, except that P2 tolerates P4 not yet being reachable (REQ-01). All processes are started with the repository root as working directory; relative paths in the configuration files (`webui_dir`, `log_file`, `services_file`, `content_dir`, `log_dir`) refer to it. P2 is started as `dtv-middleware --config <file>` (Section 4.2.5), P3 and P4 as `python3 server/headend.py --config <file>` and `python3 server/mw_server.py --config <file>` (default `server/config.json`, Section 4.7.1).
+P3 and P4 read `content/services.json` (IF-INT-05); P3 additionally reads the encrypted and clear content files listed there. The start order of `scripts/start.sh` is P4, P3, P2, P1 (NFR-12): every process only connects to processes started before it, except that P2 tolerates P4 not yet being reachable (REQ-01). All processes are started with the repository root as working directory; relative paths in the configuration files (`webui_dir`, `log_file`, `services_file`, `content_dir`, `log_dir`) refer to it. All executables are built into `build/bin/` (`cmake -S middleware -B build`); P2 is started as `build/bin/dtv-middleware --config <file>` (Section 4.2.5), P3 and P4 as `build/bin/headend --config <file>` and `build/bin/mw_server --config <file>` (default `server/config.json`, Section 4.7.1).
 
 #### 4.1.2 Architecture block diagram
 
@@ -1609,7 +1608,7 @@ flowchart TB
         GPU["GPU and audio drivers"]
     end
 
-    subgraph OPS["Operator side (WP-PAL)"]
+    subgraph OPS["Operator side (WP-PAL; SRV-PKG: WP-APP)"]
         direction LR
         MWS["SRV-MW<br/>OTT MW REST server, P4"]
         HEC_S["SRV-HEC<br/>head-end control API, P3"]
@@ -1704,7 +1703,7 @@ Notes on the diagram:
 | HAL-DMX | HAL | Simulated (software demux) | P2 | `middleware/hal/` | Sync and CC check, PID filters, section assembly | HAL-DSC | REQ-15, REQ-19 |
 | HAL-DSC | HAL | Simulated (software descrambler) | P2 | `middleware/hal/` | AES-128-CBC per D-04 | OpenSSL libcrypto | REQ-50, REQ-55 |
 | SRV-GEN | Operator side | Built over FFmpeg | offline | `content/` | Clear content files | FFmpeg | REQ-62 |
-| SRV-PKG | Operator side | Built | offline | `server/` | Encrypted content files | `cryptography` | REQ-63 |
+| SRV-PKG | Operator side | Built | offline | `server/package/` | Encrypted content files | OpenSSL libcrypto (own code, not shared with HAL-DSC, R5) | REQ-63 |
 | SRV-HEC | Operator side | Built | P3 | `server/` | IF-EXT-04 | SRV-ARC, SRV-RTP | REQ-65, REQ-68 |
 | SRV-ARC | Operator side | Simulated (archive timeline, D-08) | P3 | `server/` | Time → file position | content files | REQ-42 |
 | SRV-RTP | Operator side | Built | P3 | `server/` | IF-EXT-05 | sockets | REQ-66 |
@@ -1720,7 +1719,7 @@ Requirements that are not tied to one module are realized by the whole system: R
 | R2 — application only through IF-INT-01/02/03 | The Web application talks to the middleware only through the control WebSocket and HTTP GET of HLS and Web files. | Inspection of `webui/` |
 | R3 — AL only through IF-INT-04 | `dtvcore` includes only `middleware/include/pal/platform.hpp`, the C++17 standard library and nlohmann/json (portability rule, NFR-09). | CMake target of `dtvcore`; build of the AL unit tests with the fake DTV SDK |
 | R4 — HAL only through the DTV SDK | Only PAL-SDK calls the HAL. Other PAL modules do not use the HAL. | Inspection of `middleware/pal/` |
-| R5 — no shared code between receiver and operator side | The receiver and the operator side meet only at IF-EXT-03, IF-EXT-04 and IF-EXT-05; the packaging tool and the HAL descrambler implement D-04 independently, so that the round-trip test of REQ-63 and the decryption in the receiver are independent checks [GUIDELINES]. | Inspection of `server/` and `middleware/hal/` |
+| R5 — no shared code between receiver and operator side | The receiver and the operator side meet only at IF-EXT-03, IF-EXT-04 and IF-EXT-05 and share no team code (the reused third-party sources of `third_party/` are not team code); the packaging tool (WP-APP) and the HAL descrambler (WP-PAL) implement D-04 independently, so that the round-trip test of REQ-63 and the decryption in the receiver are independent checks [GUIDELINES]. | Inspection of `server/` and `middleware/hal/` |
 
 **Internal HAL API (PAL-SDK → HAL).** Inside WP-PAL, PAL-SDK uses three C++ classes in `middleware/hal/`; this API is not a contract between work packages and is therefore not frozen in Section 3:
 
@@ -1728,7 +1727,7 @@ Requirements that are not tied to one module are realized by the whole system: R
 |---|---|---|---|
 | `hal::IpTuner` | HAL-TUN | open the UDP port and set the SSRC, close, statistics | TS packets (one RTP payload at a time), lock status changes |
 | `hal::Demux` | HAL-DMX | add / remove a PID filter (section or TS), feed TS packets, statistics | complete sections and TS packets per filter |
-| `hal::Descrambler` | HAL-DSC | set a key for a list of PIDs, clear all keys, decrypt one TS packet in place | — (synchronous call from `hal::Demux`) |
+| `hal::Descrambler` | HAL-DSC | set a key for a list of PIDs, clear all keys, decrypt one TS packet in place (through an internal AES-128-CBC function with the IV as a parameter, called with 16 zero bytes per D-04 and with the NIST vectors in TST-215) | — (synchronous call from `hal::Demux`) |
 
 PAL-SDK maps the `FilterId` values of `IDemux` to the HAL filters, starts and stops delivery, and converts the HAL callbacks into `IDemux::DataCallback` and `ITuner::StatusCallback` calls (Section 3.9.1, rules 1, 3 and 4).
 
@@ -1909,6 +1908,8 @@ All classes receive the IF-INT-04 interfaces they use (`ITuner`, `IDemux`, `IHtt
 
 The timing values of IF-EXT-04 (5 s keepalive, 15 s expiry) are part of the contract; the configuration only allows them to be read from one place, not to be changed independently of the head-end.
 
+**Listening addresses (HLR-20).** Every socket on which P2 listens is bound to `127.0.0.1`, never to all interfaces: PAL-WS listens on `http://127.0.0.1:<ui_http_port>`, and HAL-TUN binds its UDP socket to `127.0.0.1:<rtp_port>`. The address is fixed in the PAL and HAL, not configurable, so `PlatformConfig` (Section 3.9.2) is unchanged.
+
 **Start-up** (in this order): read the configuration (invalid file → error message, exit code 1); `create_platform()`; create the AL objects with the interfaces; register the UI and tuner handlers (they must be set before `Platform::start()`, Section 3.9.2); start the AL worker thread; `Platform::start()` (failure → log, exit code 1); post the task "load services" (REQ-01).
 
 **Orderly stop** (on `SIGINT` or `SIGTERM`, REQ-70): the signal handler only sets a flag that the main thread waits for. The main thread posts the task "shutdown"; AL-SES ends the current session as on `play` (REQ-56), including `POST /stop`, and reports completion when the `/stop` response has arrived or its 2000 ms timeout has expired. Then the main thread calls `Platform::stop()` (no more callbacks), closes the task queue, joins the AL worker, overwrites the keys with zeros and exits with code 0. The whole stop takes at most 3 s.
@@ -2085,6 +2086,7 @@ Rules of the MVP structure:
 | `lastPlayId` | request id of the last `play` command | session presenter |
 | `session` | `{number, serviceId, state, reason, start, startTime, playingSince, protected, error}` of the session of the last `play`, or `null` | `play` response, `session_state`, `get_status` |
 | `playerSession` | session number for which the current hls.js player was created, or `null` when no player exists | session presenter |
+| `firstPictureAt` | `now()` of the APP at the first `playing` event of the `<video>` element after the player of the current session was created (first picture shown), or `null` | player view |
 | `streamInfo` | data of the last `stream_info` of the current session, or `null` | `stream_info` |
 | `epg` | `{from, to, serverTime, services}` of the last successful `get_epg`, or `null` | EPG presenter |
 | `volume` | integer 0 – 100, initial 50 | playback presenter |
@@ -2101,7 +2103,7 @@ Rules of the MVP structure:
 **Derived values** (computed, not stored):
 
 - **Mode:** `ARCHIVE` if `session.start` is an integer, otherwise `LIVE`.
-- **Playback position** (REQ-43, Section 3.6.3): `startTime + (now − playingSince)` in ARCHIVE mode, `now` in LIVE mode, in UNIX seconds; the distance from live is `now − position`. Before the first `playing` (`playingSince === null`) the position is the start point `start` (ARCHIVE) or `now` (LIVE).
+- **Playback position** (REQ-43, Section 3.6.3): `startTime + (now − firstPictureAt)` in ARCHIVE mode (`startTime` while `firstPictureAt` is `null`), `now` in LIVE mode; the distance from live is `now − position`. `firstPictureAt`, and not the time of the first `session_state` `playing` (`playingSince`), is used, because the picture appears 1 – 2 s after that event (the player first loads and buffers the segment); otherwise the shown time would run ahead of the burned-in time code (NFR-04).
 - **Protection status** of the info dialog (REQ-27): `Clear` if `session.protected === false`; `Protected – key OK` if `protected === true` and the state is `playing` or `no_signal`; `Protected – key required` if the state is `key_required`; no protection line in every other case (`protected === null`, or `protected === true` in another state, for example while a key is being checked in `validating_key`).
 - **Persistent status message** (shown until the condition ends, highest priority first): "No signal" while `connected` is `false` (ER-34, Section 4.8); "Server not reachable" while `services` is empty and `mwReachable` is `false` (REQ-04); "No signal" while the state is `no_signal` (REQ-20); the message of Section 3.10 for `session.error.code` while the state is `error`, "No signal" for codes without a message (REQ-21); "Protected service – press K to enter the key" while the state is `key_required` and `keyDialogCancelled` is `true` (REQ-48).
 
@@ -2166,7 +2168,7 @@ Keys not listed for a context are ignored (REQ-60). The key dialog shows `keyBuf
 | Message | Condition | Reaction |
 |---|---|---|
 | `session_state` | `data.session ≠ session.number` | Ignored (REQ-26). |
-| `session_state` | `playing`, `playerSession ≠ data.session` (first `playing` of the session) | `playerSession = n`; the player view destroys the old hls.js instance and creates a new one on `/hls/<n>/index.m3u8` with `startPosition: 0` (REQ-25); volume and mute are applied to the `<video>` element (REQ-31). The info dialog is updated (REQ-28). |
+| `session_state` | `playing`, `playerSession ≠ data.session` (first `playing` of the session) | `playerSession = n`; the player view destroys the old hls.js instance and creates a new one on `/hls/<n>/index.m3u8` with `startPosition: 0` (REQ-25); volume and mute are applied to the `<video>` element (REQ-31); `firstPictureAt = null`, and at the first `playing` event of the `<video>` element of the new player `firstPictureAt = now()` (playback position, 4.4.2). The info dialog is updated (REQ-28). |
 | `session_state` | `playing`, `playerSession = data.session` (return from `no_signal`) | Model updated only; the player is kept (REQ-25). |
 | `session_state` | `key_required` | Open the key dialog (4.4.3, last row); the player view destroys the hls.js instance if one exists, `playerSession = null` (the HLS directory is removed by the AL, Section 3.7). |
 | `session_state` | `error`, `stopped` | Destroy the hls.js instance, `playerSession = null`; the status message follows from the model (4.4.2). |
@@ -2230,10 +2232,10 @@ All capacities below are derived from these values, so that every buffer is boun
 
 | Process | Thread | Produces | Consumes | Blocks on |
 |---|---|---|---|---|
-| P3 head-end | HTTP server threads (`ThreadingHTTPServer`, one per request) | Session table entries | IF-EXT-04 requests | socket |
+| P3 head-end | HTTP event loop (Mongoose, one thread) | Session table entries | IF-EXT-04 requests | socket |
 | P3 head-end | **Session sender** (one per head-end session) | RTP datagrams (IF-EXT-05) | Content file, PCR index | Pacing sleep (Section 4.7) |
 | P3 head-end | Keepalive watchdog (one) | Stop of expired sessions (REQ-68) | Session table | 1 s sleep |
-| P4 OTT MW | HTTP server threads | IF-EXT-03 responses | `services.json` (read once at start) | socket |
+| P4 OTT MW | HTTP event loop (Mongoose, one thread) | IF-EXT-03 responses | `services.json` (read once at start) | socket |
 | P2 middleware | **Tuner receive** (HAL / PAL) | Filter callbacks (TS packets, sections), tuner status | UDP socket | `recv` with a 100 ms timeout (used for the 3 s `Unlocked` check, REQ-13) |
 | P2 middleware | **PAL event loop** (Mongoose `mg_mgr_poll`, 10 ms) | HTTP responses, UI messages, timer expiries; HTTP responses with HLS files | PAL command queue, sockets, HLS files on disk | `poll` |
 | P2 middleware | **AL worker** | Calls into the PAL, HLS segments and playlist | AL task queue | condition variable of the task queue |
@@ -2267,7 +2269,7 @@ flowchart LR
 | B3 | Section assembly buffer | HAL-DMX → section filter callback | 4 096 bytes per section filter (larger than every PAT / PMT section of the content, at most 1 024 bytes) | The section is discarded and counted; assembly restarts at the next `payload_unit_start_indicator = 1`. | HAL-DMX at `open_filter` | HAL-DMX at `close_filter` |
 | B4 | AL task queue | All AL callbacks → AL worker | Control tasks: unbounded (a few per second). **Data tasks: at most 8 192** (≈ 3 s of the TS packets of one session; ≈ 2 MiB). | A new data task is dropped by the posting callback and counted; a warning with the count is logged at most once per second. Control tasks are always queued. The tuner thread never waits for the AL. | Posting callback (copy of one TS packet in a fixed 188-byte array, or of one section) | AL worker after executing the task, or at `close()` of the queue |
 | B5 | Segment being built | AL-OUT → `IHlsStore::write_file` | 1 MiB reserved once per session (2 s at 4 Mbit/s) | If 2 s of content (by PCR) have passed without a key-frame start, the segment is discarded with a warning and AL-OUT waits for the next key-frame start (IF-INT-02: at most 2 s). | AL-OUT at `open(n)` | AL-OUT at `close()` |
-| B6 | Held segments during key validation | AL-OUT → `write_file` after `EV-KEY-OK` | At most 4 complete segments (the stream deadline of 3 s ends validation, Section 4.3) | The oldest held segment is dropped (cannot happen within the 3 s deadline with segments of at least 1 s). | AL-OUT | AL-OUT: written at `EV-KEY-OK`, discarded by RELEASE |
+| B6 | Held segments during key validation | AL-OUT → `write_file` after `EV-KEY-OK` | At most 4 complete segments (the stream deadline of 3 s ends validation, Section 4.3) | The oldest held segment is dropped (cannot happen within the 3 s deadline with segments of at least 1 s). Normally B6 stays empty: validation ends after three PES starts (about 120 ms), before the first segment is complete (Section 4.6.5). | AL-OUT | AL-OUT: written at `EV-KEY-OK`, discarded by RELEASE |
 | B7 | HLS directory of the session | AL-OUT (through PAL-FS) → PAL-WS file serving → hls.js | Playlist with the last 6 segments; before a new segment is written, the segment that will then be 3 positions older than the first listed one is removed, so at most 6 + 2 = 8 segment files exist at any time: the 6 listed and the 2 most recently unlisted ones, and while a new segment is being written (temporary name, then rename) it takes the place of the one removed just before (REQ-23, HLR-17, NFR-06) | — (removal is part of every segment write) | PAL-FS (`open_session`, `write_file`) | PAL-FS (`remove_file`, `close_session`; whole directory at `Platform::start()`) |
 | B8 | MSE source buffers | hls.js → browser decoders | hls.js defaults (`maxBufferLength` 30 s), not changed | hls.js stops loading segments until the buffer drains. | Browser | Browser (hls.js `destroy()`) |
 | B9 | Web socket and HTTP send buffers | PAL event loop → browser | Mongoose connection buffers | Mongoose keeps the data until the socket accepts it (control traffic only, files are streamed in chunks). | Mongoose | Mongoose |
@@ -2486,7 +2488,7 @@ sequenceDiagram
     HE-->>SES: 200 {"start_time": 1794999600}
     Note over SES,HE: stream, PSI, output and playing as in 4.6.3
     API->>MWC: session_state 13 playing, start 1794999600, start_time 1794999600
-    PRS->>PRS: mode ARCHIVE, position = start_time + (now - playing_since) (REQ-43)
+    PRS->>PRS: mode ARCHIVE, position = start_time + (now - firstPictureAt) (REQ-43)
 ```
 
 #### 4.6.5 Protected archive: no key, incorrect key, correct key, playback from the same T
@@ -2550,12 +2552,15 @@ sequenceDiagram
     HE-->>SES: 200 {"start_time": T}
     Note over SES,PAL: PSI, set_key, TS filters
     DSC->>SES: EV-VIDEO1 protected, key set - T-15
-    PAL-->>OUT: decrypted packets, segments held in memory (REQ-52)
-    PAL-->>DSC: three video PES starts
+    API->>MWC: session_state 14 validating_key
+    PAL-->>OUT: decrypted packets (feed), nothing written yet (REQ-52)
+    PAL-->>DSC: three video PES starts (three frames, about 120 ms)
     DSC->>DSC: all three start with 00 00 01
     DSC->>SES: EV-KEY-OK - T-16
     SES->>OUT: set_write_enabled(true)
-    OUT->>PAL: write held seg-0.ts, index.m3u8
+    Note over OUT,PAL: the first segment is not complete yet, it needs at least 1 s of content from the first key frame
+    PAL-->>OUT: further decrypted packets (feed)
+    OUT->>PAL: write_file(14, seg-0.ts), write_file(14, index.m3u8)
     OUT->>SES: EV-SEG1 - T-18
     API->>MWC: session_state 14 playing, protected true, start T, start_time T
     PRS->>PRS: create player on /hls/14/index.m3u8, startPosition 0
@@ -2712,7 +2717,7 @@ sequenceDiagram
 
 ### 4.7 Operator-side design
 
-This section specifies the algorithms of the operator side (WP-PAL): content generation, packaging, the archive timeline, RTP pacing, session management of the head-end and EPG generation. All operator-side programs are Python 3.12 with the standard library and `cryptography` (HLR-19, NFR-11), except the FFmpeg script of SRV-GEN. Every operator-side module reads the time only through clock functions passed to it at construction (defaults `time.time` and `time.monotonic`), so that its unit tests can use a fixed or advancing time (Section 5.3).
+This section specifies the algorithms of the operator side (WP-PAL; SRV-PKG by WP-APP): content generation, packaging, the archive timeline, RTP pacing, session management of the head-end and EPG generation. All operator-side programs are C++17 (HLR-19), built by the CMake project of `middleware/CMakeLists.txt`, which adds `server/` as a subdirectory, as the targets `headend`, `mw_server` and `package_ts` (executables in `build/bin/`, unit tests in the target `server_tests`), with Mongoose (HTTP), nlohmann/json, OpenSSL libcrypto (SRV-PKG only) and POSIX sockets and threads — the libraries the receiver already uses (Section 2.2.8); only SRV-GEN is a shell script that calls FFmpeg. Their common helpers (configuration, logging, HTTP and JSON helpers, injected clock) are in `server/common/`; the operator side links nothing of `middleware/` and shares no code with the receiver (rule R5, Section 4.1.4). The pacing of SRV-RTP uses `std::chrono::steady_clock` and `std::this_thread::sleep_until`. Every operator-side module reads the time only through clock functions passed to it at construction (defaults `std::chrono::system_clock` and `std::chrono::steady_clock`), so that its unit tests can use a fixed or advancing time (Section 5.3).
 
 #### 4.7.1 Files and configuration
 
@@ -2726,10 +2731,10 @@ This section specifies the algorithms of the operator side (WP-PAL): content gen
 | `content/test/` | Test set of Section 5.2.1 (`novideo.ts`, `*.altpid.ts`, `svc-4.altpid.enc.ts`) and `services.test.json` | Tests only |
 | `content/SHA256SUMS` | Checksums of all content files (Section 5.2.1) | Acceptance runs |
 | `server/config.test.json` | As `server/config.json`, with `services_file` `content/test/services.test.json` | Tests only |
-| `server/package.py` | SRV-PKG (4.7.3) | team, once |
-| `server/headend.py` | P3: SRV-HEC, SRV-ARC, SRV-RTP | `scripts/start.sh` |
-| `server/mw_server.py` | P4: SRV-MW | `scripts/start.sh` |
-| `server/config.json` | `mw_port` 8080, `headend_port` 8081, `headend_url` `http://127.0.0.1:8081/api/v1/stream`, `services_file` `content/services.json`, `content_dir` `content`, `log_dir` `logs` (NFR-16) | P3, P4 |
+| `server/package/` → `package_ts` | SRV-PKG (4.7.3) | team, once |
+| `server/headend/` → `headend` | P3: SRV-HEC, SRV-ARC, SRV-RTP | `scripts/start.sh` |
+| `server/mw/` → `mw_server` | P4: SRV-MW | `scripts/start.sh` |
+| `server/config.json` | `mw_port` 8080, `headend_port` 8081, `headend_url` `http://127.0.0.1:8081/api/v1/stream`, `services_file` `content/services.json`, `content_dir` `content`, `log_dir` `logs` (NFR-16). P3 and P4 bind their HTTP servers to `127.0.0.1` only (HLR-20). | P3, P4 |
 
 #### 4.7.2 Content generation (SRV-GEN)
 
@@ -2742,13 +2747,15 @@ This section specifies the algorithms of the operator side (WP-PAL): content gen
 | Audio source | `sine=frequency=<220·(n+1)>:sample_rate=48000`, stereo (a different tone per service) | D-09 |
 | Video encoding | `-c:v libx264 -profile:v high -preset veryfast -b:v 2500k -maxrate 2500k -bufsize 2500k -g 25 -keyint_min 25 -sc_threshold 0 -flags +cgop` | closed GOP of 25 frames (Section 2.2.1) |
 | Audio encoding | `-c:a aac -b:a 128k -ar 48000 -ac 2` | AAC-LC, 48 kHz, stereo |
-| Multiplex | `-f mpegts -muxrate 3500k -mpegts_service_id 1 -pat_period 0.1 -t 600` | CBR 3.5 Mbit/s ≤ 4 Mbit/s (REQ-62); PAT/PMT every 100 ms; 600 s |
+| Multiplex | `-f mpegts -muxrate 3500k -mpegts_service_id 1 -pat_period 0.09 -t 600` | CBR 3.5 Mbit/s ≤ 4 Mbit/s (REQ-62); PAT/PMT at least every 100 ms (see the note below the table); 600 s |
 
 With these settings FFmpeg 6.1.1 uses program number 1, PMT PID 4096, video PID 256 (also the PCR PID) and audio PID 257 — the values of the `stream_info` example of Section 3.6.3 — and sets `random_access_indicator` on every key-frame start, which AL-OUT uses (Section 4.2.4). The receiver does not rely on these PID values (HLR-12); the verification plan uses additional test files with other PIDs and without video, generated by the same script (Section 5.2.1). The constant mux rate (null packets, PID `0x1FFF`, fill the difference) makes the byte offset proportional to the content time, which keeps pacing (4.7.5) and the position mapping (4.7.4) simple.
 
+**PAT/PMT period 0.09 s instead of 0.1 s.** FFmpeg inserts PAT and PMT at the first packet it writes after the period has passed, never earlier, so the real distance is always slightly longer than `-pat_period`. Measured with FFmpeg 6.1.1 and the settings above (2026-11-22, distance = byte distance × 8 / 3 500 000 as in TST-302): `-pat_period 0.1` gives up to **0.101 s** within 60 s of content, which violates "at least every 100 ms" (Section 2.2.1, REQ-62) and would fail TST-302; `-pat_period 0.09` gives at most **0.091 s** over a complete 600 s file. The cost is about 2 more PSI packets per second (≈ 3 kbit/s), which replace null packets of the constant mux rate, so file size and bit rate do not change. The same measurement confirmed the other assumptions of this section: PIDs 4096 / 256 / 257, `random_access_indicator` on all 600 key frames, PCR every 20 ms, duration 600.02 s, bit rate 3 499 806 bit/s; it also showed about 8 PCR-only video packets per second, the reason for the 16-byte rule of REQ-44.
+
 #### 4.7.3 Packaging tool (SRV-PKG)
 
-`python3 server/package.py --in content/svc-3.ts --out content/svc-3.enc.ts` reads the key (32 hexadecimal characters) from standard input without echo, so that it does not appear in the shell history or the process list. It shares no code with the receiver (rule R5, Section 4.1.4).
+`build/bin/package_ts --in content/svc-3.ts --out content/svc-3.enc.ts` reads the key (32 hexadecimal characters) from standard input without echo, so that it does not appear in the shell history or the process list. It shares no code with the receiver (rule R5, Section 4.1.4).
 
 Algorithm:
 
@@ -2902,7 +2909,7 @@ Structure:
 
 | Level | Object under test | Neighbours replaced by | Environment (5.1.2) | Tool / command | Written by | Run |
 |---|---|---|---|---|---|---|
-| **Unit** | One module, or the free functions of one module (Section 4.2.4): AL modules with the fake DTV SDK and fake platform (Section 2.2.7); HAL and PAL modules with byte arrays and loopback sockets; SRV modules with temporary files; APP model, key mapping and presenters with a fake middleware client and a fake clock (Section 4.4.6). | Fakes and stand-ins of Section 2.2.7 | E1 | C++: `ctest --test-dir build --output-on-failure` (GoogleTest); Python: `python3 -m unittest discover -s server/tests`; Web: `node --test webui/tests/*.test.js` | The work package that owns the module | Before every pull request (rule 3 of Section 2.2.7); all must pass before the merge |
+| **Unit** | One module, or the free functions of one module (Section 4.2.4): AL modules with the fake DTV SDK and fake platform (Section 2.2.7); HAL and PAL modules with byte arrays and loopback sockets; SRV modules with temporary files; APP model, key mapping and presenters with a fake middleware client and a fake clock (Section 4.4.6). | Fakes and stand-ins of Section 2.2.7 | E1 | C++ (receiver and operator side): `ctest --test-dir build --output-on-failure` (GoogleTest); Web: `node --test webui/tests/*.test.js` | The work package that owns the module | Before every pull request (rule 3 of Section 2.2.7); all must pass before the merge |
 | **Integration** | Two neighbouring parts of the system connected over a real interface of Section 3 (IF-EXT-03, IF-EXT-04, IF-EXT-05, IF-INT-01, IF-INT-02, IF-INT-04), and the operations of the sequence diagrams of Section 4.6. | The remaining parts: stand-ins of Section 2.2.7 or test tools (5.1.6) | E2 | Scripts in `tests/integration/` | Both owners of the interface; reviewed by both | After every merge into `main` that changes one of the two sides |
 | **Acceptance** | The complete system started with `scripts/start.sh`: user stories (Section 1.9) and non-functional requirements (Section 2.4). | Nothing | E3 | Written procedure plus measurement scripts in `tests/acceptance/` | From Sections 1 and 2 only, not from the code | At milestones I-3 (protected rewind subset), I-4 (complete) and I-5 (final run on the defense laptop) |
 
@@ -2940,7 +2947,7 @@ Test IDs have three digits and are grouped in blocks, so that the three work pac
 |---|---|---|---|
 | `TST-1xx` | Unit | WP-AL (AL modules) | 5.3 |
 | `TST-2xx` | Unit | WP-PAL (PAL and HAL modules of the receiver) | 5.3 |
-| `TST-3xx` | Unit | WP-PAL (operator side, SRV modules) | 5.3 |
+| `TST-3xx` | Unit | WP-PAL (operator side, SRV modules); TST-304 – 306 (SRV-PKG): WP-APP | 5.3 |
 | `TST-4xx` | Unit | WP-APP (Web application) | 5.3 |
 | `TST-5xx` | Integration | Both owners of the interface | 5.4 |
 | `TST-6xx` | Acceptance, functional (user stories) | Whole team | 5.5 |
@@ -2961,7 +2968,7 @@ A requirement is **verified** when all tests listed for it in Section 5.7 have t
 
 | Evidence type | Content | Produced by |
 |---|---|---|
-| `TESTOUT` | Output of the test runner (`ctest`, `unittest`, `node --test`) with the names and results of the tests. | Unit and integration tests |
+| `TESTOUT` | Output of the test runner (`ctest`, `node --test`) with the names and results of the tests. | Unit and integration tests |
 | `LOG` | Excerpt of `logs/<component>.log` (NFR-13) with the lines that prove the expected result. | All levels |
 | `FFPROBE` | Output of `ffprobe -show_programs -show_streams` (and `-show_packets` where packets are counted) on a content file, a captured stream or an HLS segment. | Independent inspection of TS data |
 | `CAPTURE` | Result of the analysis of a `tcpdump` capture on the loopback interface (counts, matches found or not found). The capture file itself is deleted after the analysis and never committed, because it contains IF-INT-01 traffic with test keys (NFR-08). | NFR-07, NFR-08, IF-EXT-05 checks |
@@ -2980,7 +2987,7 @@ Test tools used besides the components of the system (versions in Section 2.2.8)
 3. **One service playing is not evidence that all services work.** Tests of reception, protection and archive playback are executed for all four services of the test data set, or explicitly for both clear and both protected services.
 4. **A ready-made player is not evidence of the team's implementation.** That hls.js plays a stream does not prove the team's RTP reception, PAT/PMT parsing, PID selection, decryption or key validation. These are proven by unit tests of AL-PSI, AL-DSC, HAL-TUN, HAL-DMX and HAL-DSC with hand-built byte arrays, by comparing `stream_info` with `FFPROBE` of the content, and by the content file with non-default PIDs of Section 5.2 (HLR-12).
 5. **Expected values come from outside the code under test**: from Section 3 (JSON examples, formulas), from Section 4.7 (time-to-position and EPG formulas), from the standards (AES test vectors of FIPS-197 and NIST SP 800-38A, MPEG-2 CRC-32 of known sections) or from an independent tool (`ffprobe`). Output recorded from the team's own code is never used as the expected value ("golden file") of a test of the same code.
-6. **Independent implementations check each other.** D-04 is implemented twice, by SRV-PKG in Python and by HAL-DSC in C++ (rule R5, Section 4.1.4); the receiver's decryption of the packaged files is the cross-check of both (Section 5.4).
+6. **Independent implementations check each other.** D-04 is implemented twice, by SRV-PKG (WP-APP) and by HAL-DSC (WP-PAL), as two separate C++ implementations written by different members and sharing no code (rule R5, Section 4.1.4); the receiver's decryption of the packaged files is the cross-check of both (Section 5.4).
 7. **Tests written with an LLM** together with the code may share a wrong assumption [GUIDELINES]. Every such test is reviewed in its pull request by a member of another work package, who checks its expected values against this specification before the merge (rule 3 of Section 2.2.7).
 8. **Acceptance tests are executed by a member who did not implement** the layer that owns the main requirement of the test (Section 2.3, column "Layer"), and the result is recorded by that member in Section 5.9.
 
@@ -2998,7 +3005,7 @@ This section is the **test data documentation** required by US-22 AC2 and NFR-17
 
 #### 5.2.1 Content files
 
-All files are generated by `content/generate.sh` (Section 4.7.2) and packaged by `server/package.py` (Section 4.7.3). They are **not committed** to the repository (one 600 s file at 3.5 Mbit/s is about 262 MB, above the file-size limit of GitHub); `content/*.ts` and `content/test/*.ts` are listed in `.gitignore`. The reference set is the one generated on the defense laptop (E3).
+All files are generated by `content/generate.sh` (Section 4.7.2) and packaged by `package_ts` (Section 4.7.3). They are **not committed** to the repository (one 600 s file at 3.5 Mbit/s is about 262 MB, above the file-size limit of GitHub); `content/*.ts` and `content/test/*.ts` are listed in `.gitignore`. The reference set is the one generated on the defense laptop (E3).
 
 **Reference set** — used by `content/services.json` and by every test unless the test names the test set:
 
@@ -3051,7 +3058,7 @@ The test set is served by the head-end and the OTT MW server started with `serve
 - **Search patterns for NFR-08:** for each of K3 and K4, the upper-case and lower-case hexadecimal strings and the 16 raw key bytes.
 - **Known-answer vectors.** Besides these keys, the unit tests of HAL-DSC, AL-DSC and SRV-PKG use the AES-128 example vectors of FIPS-197 (Appendix C.1) and the CBC-AES128 vectors of NIST SP 800-38A (F.2.1, F.2.2), which do not depend on the team's code (Section 5.1.7, rule 5).
 
-The test keys appear only in this section, in the test code and test scripts that use them, and on the command input of `server/package.py`; no component writes them anywhere (NFR-08).
+The test keys appear only in this section, in the test code and test scripts that use them, and on the standard input of `package_ts`; no component writes them anywhere (NFR-08).
 
 #### 5.2.3 Expected services
 
@@ -3117,7 +3124,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | Topic | Rule |
 |---|---|
 | Location | AL: `middleware/core/tests/`; PAL: `middleware/pal/tests/`; HAL: `middleware/hal/tests/`; operator side: `server/tests/`; Web application: `webui/tests/`. |
-| Names | Every test function carries its test ID, so that `TESTOUT` maps to Section 5.9: GoogleTest `TEST(Tst101, ParsePatValid)`, Python `test_tst301_…`, Node `test("TST-401 …")`. One ID may have several test functions. |
+| Names | Every test function carries its test ID, so that `TESTOUT` maps to Section 5.9: GoogleTest `TEST(Tst101, ParsePatValid)` (operator side `TEST(Tst301, …)`), Node `test("TST-401 …")`. One ID may have several test functions. |
 | AL fakes | The fakes of Section 2.2.7 (`middleware/core/tests/fakes/`): fake tuner (status events on request), fake demux (filters fed from byte arrays or from a content file; descrambling with a reference implementation of D-04 written in the test code), fake HTTP client (scripted response per URL, by default the JSON examples of Section 3), fake UI channel (records sent frames), HLS store on a temporary directory, controllable clock (`advance(ms)`), fake logger (records lines). The task queue runs in test mode (`run_pending()`, Section 4.2.1, T5). |
 | Operator-side fakes | Fixed or advancing clock functions (Section 4.7), temporary directories, a UDP socket of the test on an ephemeral port as RTP receiver. |
 | APP fakes | Fake middleware client (scripted responses and events, JSON of Section 3.6), fake clock (4.4.6), fake player view that records create / destroy / URL / options. |
@@ -3155,7 +3162,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 |---|---|---|---|---|---|---|
 | TST-121 | REQ-22, REQ-23 | B5 | Content: first 12 s of `svc-1.ts` fed as TS filter packets; `write_enabled = true` | 1. Feed; 2. run `ffprobe -show_streams -show_frames` on every written segment | Every segment starts with one PAT packet, one PMT packet and a video packet with `payload_unit_start_indicator = 1` and `random_access_indicator = 1`; `ffprobe` reads every segment on its own, its first video frame has `key_frame=1`; every `#EXTINF` is between 1.000 and 2.000 | TESTOUT, FFPROBE |
 | TST-122 | REQ-22 | — | Output of TST-121 | 1. Scan all packets of all segments | Only PIDs 0, 4096, 256, 257 (no null packets); `transport_scrambling_control = '00'` on every packet | TESTOUT |
-| TST-123 | REQ-23; HLR-17 | B7 | Content: 20 s of `svc-1.ts` | 1. Feed; 2. after every segment write, read `index.m3u8` and list the directory | Playlist: `#EXT-X-VERSION:3`, `#EXT-X-TARGETDURATION:2`, `#EXT-X-MEDIA-SEQUENCE` = sequence of the first listed segment, at most 6 segments, `#EXTINF` with 3 decimals, no `#EXT-X-ENDLIST`; a segment is listed only after its file exists with its final size; when segment `k` is the first listed, `seg-(k−3).ts` no longer exists; never more than 8 segment files | TESTOUT |
+| TST-123 | REQ-23; HLR-17 | B7 | Content: 20 s of `svc-1.ts` | 1. Feed; 2. after every segment write, read `index.m3u8` and list the directory | Playlist: `#EXT-X-VERSION:3`, `#EXT-X-TARGETDURATION:2`, `#EXT-X-MEDIA-SEQUENCE` = sequence of the first listed segment, at most 6 segments, `#EXTINF` with 3 decimals, no `#EXT-X-ENDLIST`; a segment is listed only after its file exists with its final size; when segment `k` is the first listed, `seg-(k−3).ts` no longer exists; never more than 8 segment files (B7) | TESTOUT |
 | TST-124 | REQ-24 | — | Content: last 5 s of `svc-1.ts` followed by its first 8 s (the loop boundary of D-08); second input: 5 s, a gap of 2 s of content removed, 5 s | 1. Feed both inputs; 2. read the playlists until the marked segment has left the playlist | A segment is closed at the boundary / at the gap; the next one is preceded by `#EXT-X-DISCONTINUITY`; `#EXT-X-DISCONTINUITY-SEQUENCE:1` appears when the marked segment leaves the playlist; segment timestamps equal those of the input (not rewritten) | TESTOUT, FFPROBE |
 | TST-125 | REQ-52 | B6; T-16 | Content: 5 s of `svc-1.ts`; `write_enabled = false` | 1. Feed 5 s; 2. check the directory; 3. `set_write_enabled(true)` | 2: no segment and no playlist written, at most 4 segments held; 3: held segments written in order from `seg-0.ts`, `seg-0.ts` begins with the first key-frame start after `open` | TESTOUT |
 | TST-126 | — (IF-INT-02 limit) | B5; ER-28 | 4 s of `svc-1.ts` in which the `random_access_indicator` of the key frames between 1 s and 3.5 s is cleared by the helper | 1. Feed | The segment without a key-frame start within 2 s is discarded with a warning; the next segment starts at the next key-frame start; no segment longer than 2.000 s | TESTOUT |
@@ -3212,7 +3219,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-212 | REQ-19 | — | Filters: TS on 256 (two filters), TS on 257, section on 0 | 1. Feed a mix of PIDs 0, 256, 257, 4096, 8191 | Each TS filter receives only its PID, one 188-byte packet per callback; both filters on 256 receive every packet; no delivery of 4096 and 8191 | TESTOUT |
 | TST-213 | REQ-16, REQ-17 | B3; ER-24 | Sections built by the helper: one in one packet with `pointer_field`; one over 3 packets; two sections in one packet; a section of 5 000 bytes; `table_id` filter `0x02` with a `0x00` section | 1. Feed | Complete sections delivered byte for byte; the 5 000-byte section discarded and counted, assembly restarts at the next `payload_unit_start_indicator = 1`; `table_id` mismatch not delivered | TESTOUT |
 | TST-214 | Section 3.9.1 rule 4 | — | Feeding thread at full speed on PID 256 | 1. `close_filter` 1 000 times on freshly opened filters | No callback for a filter after its `close_filter` returned (callback checks a flag set after the return) | TESTOUT |
-| TST-215 | REQ-50 | — | `hal::Descrambler` | 1. AES-128 decryption of the FIPS-197 C.1 vector; 2. CBC decryption of NIST SP 800-38A F.2.2 | Plaintext `00112233445566778899aabbccddeeff`; the four plaintext blocks of F.2.2 | TESTOUT |
+| TST-215 | REQ-50 | — | `hal::Descrambler` | 1. AES-128 decryption of the FIPS-197 C.1 vector; 2. CBC decryption of NIST SP 800-38A F.2.2 through the internal AES-128-CBC function of `hal::Descrambler`, which takes the IV as a parameter (Section 4.1.4; the descrambler itself always passes 16 zero bytes, D-04) | Plaintext `00112233445566778899aabbccddeeff`; the four plaintext blocks of F.2.2 | TESTOUT |
 | TST-216 | REQ-50; R5 | — | Content: `svc-3.ts`, `svc-3.enc.ts` (packaged by SRV-PKG, the independent implementation); K3 set for PIDs 256, 257 | 1. Feed `svc-3.enc.ts` through demux and descrambler; 2. compare with `svc-3.ts` | Every delivered packet equals the packet of `svc-3.ts` at the same position byte for byte (scrambling bits `'00'`); `scrambled = true` exactly for the packets that had `'10'` | TESTOUT |
 | TST-217 | REQ-50 | — | As TST-216 without a key; then with K3 and `clear_keys()` | 1. Feed 1 000 packets each | Without key and after `clear_keys`: packets unchanged, `scrambled = true`, scrambling bits `'10'` | TESTOUT |
 | TST-221 | Section 3.9.2 (DTV SDK) | — | `Platform` from `create_platform` with a test configuration (ephemeral ports, temporary `hls_dir`) | 1. `open_filter` with PID 8192; 2. open a filter, feed, then `start_filter`; 3. `stop_filter`, `close_filter`; 4. `IDemux::set_key` and `stats()` | 1: `0`; 2: no data before `start_filter`; 3: no data after; 4: key reaches the descrambler (decrypted data), statistics equal the sum of the HAL counters | TESTOUT |
@@ -3222,16 +3229,16 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-225 | Section 3.9.2 (`IClock`, `ILogger`); NFR-13 | — | — | 1. Timers of 50, 100, 1 000 ms, one cancelled; 2. 4 threads × 1 000 log lines | 1: each fires once, not earlier, at most 20 ms late; the cancelled one never; 2: 4 000 complete lines matching `^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3} (DEBUG\|INFO\|WARN\|ERROR) \[[^\]]+\] ` | TESTOUT |
 | TST-226 | Section 3.9.1 rule 4 | — | Platform with tuner receiving, timers running, a WebSocket client connected | 1. `Platform::stop()` | No callback of any interface after the return | TESTOUT |
 
-#### 5.3.4 Operator side — WP-PAL (`TST-3xx`)
+#### 5.3.4 Operator side — WP-PAL; SRV-PKG: WP-APP (`TST-3xx`)
 
 | ID | Verifies | Anchors | Preconditions and input | Steps | Expected result | Evidence |
 |---|---|---|---|---|---|---|
 | TST-301 | REQ-62 | — | Content: all streamed files of Section 5.2.1 | 1. `ffprobe -show_programs -show_streams -show_format` on each | Every property of the "Expected properties" table of Section 5.2.1 with the PIDs of its row | TESTOUT, FFPROBE |
 | TST-302 | REQ-62; Section 2.2.1 | — | Content: `svc-1.ts` … `svc-4.ts` | 1. Scan with the test's own TS reader; 2. `ffprobe -show_frames` on the video | 1: distance between consecutive PAT packets and between consecutive PMT packets ≤ 0.1 s (byte distance × 8 / 3 500 000); `random_access_indicator` on every IDR start; 2: an I frame every 25 frames and every GOP closed | TESTOUT, FFPROBE |
 | TST-303 | REQ-62; NFR-04 | — | Content: `svc-1.ts` … `svc-4.ts` | 1. Extract frames at 0, 123, 299, 300 and 599 s with `ffmpeg -ss` to PNG | Each frame shows the service name, the program title of Section 5.2.3 (Program 1 up to 299 s, Program 2 from 300 s) and the time code `00:00`, `02:03`, `04:59`, `05:00`, `09:59` (checked by inspection of the PNG files) | PHOTO |
-| TST-304 | REQ-63 | R5 | Content: `svc-3.ts`; K3 | 1. `package.py` → temporary output; 2. decrypt it with the test's own use of `cryptography` (not with functions of `package.py`) | Same size; packets of PIDs other than 256, 257 unchanged; a packet has scrambling bits `'10'` exactly when its payload has ≥ 16 bytes; decrypted output equals the input byte for byte after resetting the scrambling bits | TESTOUT |
+| TST-304 | REQ-63 | R5 | Content: `svc-3.ts`; K3 | 1. `package_ts` → temporary output; 2. decrypt it with the test's own calls of OpenSSL (not with functions of `package_ts`) | Same size; packets of PIDs other than 256, 257 unchanged; a packet has scrambling bits `'10'` exactly when its payload has ≥ 16 bytes; decrypted output equals the input byte for byte after resetting the scrambling bits | TESTOUT |
 | TST-305 | REQ-63 | — | A video packet built by the helper with a 4-byte header, no adaptation field, payload = the FIPS-197 C.1 plaintext followed by 168 bytes; key of FIPS-197 C.1 | 1. Package a file with this packet after a valid PAT/PMT | Payload bytes 0 – 15 equal `69c4e0d86a7b0430d8cdb78070b4c55a` (first CBC block with IV = 0 is the plain AES block); bytes 176 – 183 (residual 8 bytes) unchanged | TESTOUT |
-| TST-306 | — | ER-39 | IN-12; key typed on standard input | 1. Run `package.py` for each; 2. run with K3 and capture standard output, standard error and the log | 1: exit code 1, message, no output file; 2: key not echoed; the log contains `3A7F…` and no full key | TESTOUT |
+| TST-306 | — | ER-39 | IN-12; key typed on standard input | 1. Run `package_ts` for each; 2. run with K3 and capture standard output, standard error and the log | 1: exit code 1, message, no output file; 2: key not echoed; the log contains `3A7F…` and no full key | TESTOUT |
 | TST-311 | REQ-42 | 4.7.4 | Content: `svc-1.ts`; fixed clock | 1. `position(T)` for `T mod 600` ∈ {0, 1, 299, 300, 599}; 2. read the packet at the returned offset | Offset a multiple of 188 and a packet of the PCR PID with a PCR; its content time `c` satisfies `0 ≤ p − c < 0.04 s`; cached PAT and PMT are the first PAT and PMT of the file | TESTOUT |
 | TST-312 | REQ-42; Section 3.1 | — | Clock at `t = 1795000000` | 1. Validate `T` = `t − 7200`, `t − 7201`, `t − 1`, `t` | Valid; `OUT_OF_ARCHIVE`; valid; `FUTURE_TIME` | TESTOUT |
 | TST-313 | — | ER-38 | IN-11 (missing content file; programs sum 590 s) | 1. Start the head-end with each | Exit code 1, message naming service and file | TESTOUT |
@@ -3260,7 +3267,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-411 | REQ-33 – REQ-36 | — | Fixed clock `t = 1795000000`; `svc-3` current in ARCHIVE at `T = 1794999600` | 1. `E`; 2. `↓`, `→`, `←`, `↑`; 3. render marks; 4. EPG with no events for `svc-2`; `get_epg` error | 1: `get_epg` `from = t − 7200`, `to = t + 7200`; selection `svc-3` / `Premium Morning`; 2: moves between services keeping the time, and between events; selected event's title, times, description and availability shown; 3: `in_archive` true → "available", past with false → "not available", future → no mark; 4: "No information" for `svc-2`; for all services on error | TESTOUT |
 | TST-412 | REQ-37, REQ-38 | ER-09 | EPG open as TST-411 | 1. `ENTER` on the running event; 2. on an available past event; 3. on the event of `start` 1794992700; 4. on a future event | 1: `play` with its `start` 1794999900 (not `"live"`), EPG closed; 2: `play` with its start; 3: toast "Content not available in archive" for 3 s, EPG open, no `play`; 4: nothing | TESTOUT |
 | TST-413 | REQ-39, REQ-40 | 4.4.5 seek; 4.6.7 | Fixed clock `t`; LIVE `svc-1` | 1. `←` ×2, 500 ms; 2. in ARCHIVE at `t − 60`: `→` ×3 within 500 ms; 3. LIVE: `→`; 4. LIVE: `←`, `→`, 500 ms; 5. ARCHIVE: `B`; 6. LIVE: `B` | 1: one `play` with `t − 60`; 2: one `play` `"live"`; 3: nothing; 4: `play "live"` (target not earlier than `t`); 5: `play "live"`; 6: nothing | TESTOUT |
-| TST-414 | REQ-43 | 4.4.2 derived values | ARCHIVE session, `start_time = t − 90`, `playing_since = t`, APP clock at `t` | 1. Advance 0, 1, 10 s | Position `HH:MM:SS` of `t − 90`, `t − 89`, `t − 80`; distance `−01:30` each time (advances with the clock); in LIVE only `LIVE` | TESTOUT |
+| TST-414 | REQ-43 | 4.4.2 derived values | ARCHIVE session, `startTime = t − 90`, first `playing` of the session at APP time `a − 1.5 s`, first picture (`playing` event of the fake `<video>` element) at APP time `a` | 1. Advance 0, 1, 10 s | Position `HH:MM:SS` of `t − 90`, `t − 89`, `t − 80`; distance `−01:30` each time (advances with the clock); in LIVE only `LIVE` | TESTOUT |
 | TST-415 | REQ-46 – REQ-48 | 4.4.3 last row; ER-29 – ER-31 | `svc-3` session; contexts `EPG` with zap and seek timers running | 1. `key_required` `no_key`; 2. type `3a7f…` (32), `G`, `L`, `E`, `B` and a 33rd character; 3. `BACKSPACE`, `ENTER` with 31, then 32; 4. `key_required` `key_rejected`; `ESC`; 5. `K` | 1: timers cancelled, dialog "Enter the decryption key"; 2: 32 hex characters accepted (upper case), `G`/`L` ignored, `E`/`B` as characters, no playback shortcut, 33rd ignored, display `•` with `n/32`; 3: `ENTER` with 31 ignored, with 32 `set_key` with the typed key; 4: dialog "Incorrect decryption key", after `ESC` status "Protected service – press K to enter the key"; 5: dialog opens | TESTOUT |
 | TST-416 | — (ER-07, ER-32) | 4.4.4 response rows | — | 1. `play` answered `SERVICE_NOT_FOUND`; 2. `set_key` answered `INVALID_KEY_FORMAT` | 1: toast "Invalid service number" 3 s, then `get_status` and the returned session adopted; 2: key dialog reopened, title "Enter the decryption key" | TESTOUT |
 | TST-417 | REQ-20, REQ-21 | 4.4.2 status | Model with combinations of `connected`, `services`, `mwReachable`, state, error code, `keyDialogCancelled` | 1. Evaluate the persistent status message | The message of the highest-priority true condition of Section 4.4.2; error codes mapped as in Section 3.10 (`OUT_OF_ARCHIVE` → "Content not available in archive", `SERVICE_NOT_FOUND` → "Invalid service number", others → "No signal") | TESTOUT |
@@ -3306,7 +3313,7 @@ Every process is started with the same command and configuration as in `scripts/
 | TST-511 | REQ-13, REQ-15, REQ-16, REQ-19; HLR-25 | 4.6.2 | CFG-RXP | 1. `pal_dump --ssrc 1180331842 --seconds 10 --out a.ts`; 2. `/start` `svc-1` live with the same SSRC; 3. `ffprobe` on `a.ts` | 1: PAT section with program 1 → 4096 and the PMT section printed; statistics `rtp_invalid = 0`, `rtp_lost = 0`, `sync_errors = 0`, `cc_errors ≤ 2` (session start); 3: one program with H.264 and AAC on 256 / 257, decode check without error | TESTOUT, FFPROBE |
 | TST-512 | REQ-50; D-04; R5 | — | CFG-RXP; keys K3, KX | 1. As TST-511 with `svc-3` and `--key-stdin` K3; 2. again with KX; 3. without a key | 1: every counted video PES start begins with `00 00 01`; decode check of the output without error; a PNG of its first key frame shows "Premium One"; 2 and 3: 0 PES starts begin with `00 00 01` | TESTOUT, PHOTO |
 | TST-521 | REQ-01, REQ-05; US-01 AC1, AC2 | 4.6.1; ER-01, ER-02 | CFG-MW with P4 not started | 1. Start P2, connect the WebSocket client; 2. `get_services`; 3. start P4; wait 7 s; 4. `get_services`; 5. stop P4; `get_services`, `get_epg` | 1: `mw_status` `false`; 2: `MW_UNREACHABLE`; 3: `mw_status` `true` at most 5.5 s after P4 opened its port; 4: the 4 services of 5.2.3; 5: the same 4 services; `get_epg` → `MW_UNREACHABLE` | TESTOUT, LOG |
-| TST-522 | REQ-12, REQ-18, REQ-22, REQ-23, REQ-67; HLR-01 | 4.6.3; T-01, T-03, T-06, T-09, T-12, T-19, T-18, T-26 | CFG-MW; HLS checker | 1. `play svc-1 "live"`; run 30 s; 2. the same for `svc-2` | Response `{"session": n}`, then `session_state` `starting`, `waiting_stream`, `playing`; `stream_info` equal to `ffprobe` of the content file; HLS checker: playlist valid, at most 6 listed, every segment probes and decodes without error, PIDs 0 / 4096 / 256 / 257 only; never more than 8 segment files in `/tmp/m15-hls/<n>/`; head-end log shows a keepalive every 5 s ± 0.5 s; PNG of a segment shows the burned-in name of the selected service | TESTOUT, FFPROBE, LOG, PHOTO |
+| TST-522 | REQ-12, REQ-18, REQ-22, REQ-23, REQ-67; HLR-01 | 4.6.3; T-01, T-03, T-06, T-09, T-12, T-19, T-18, T-26 | CFG-MW; HLS checker | 1. `play svc-1 "live"`; run 30 s; 2. the same for `svc-2` | Response `{"session": n}`, then `session_state` `starting`, `waiting_stream`, `playing`; `stream_info` equal to `ffprobe` of the content file; HLS checker: playlist valid, at most 6 listed, every segment probes and decodes without error, PIDs 0 / 4096 / 256 / 257 only; never more than 8 segment files in `/tmp/m15-hls/<n>/` (B7); head-end log shows a keepalive every 5 s ± 0.5 s; PNG of a segment shows the burned-in name of the selected service | TESTOUT, FFPROBE, LOG, PHOTO |
 | TST-523 | HLR-12; REQ-16, REQ-17, REQ-19, REQ-49 | T-13; ER-25 | CFG-MW with `server/config.test.json`; K4 | 1. `play svc-2 "live"`; 2. `play svc-4 "live"`, `set_key svc-4 K4`; 3. `play svc-1 "live"` | 1: `stream_info` program 2, PMT 768, video 1025, audio 1026, `playing`, segments contain PIDs 0 / 768 / 1025 / 1026; 2: `key_required`, then `playing`; 3: `error` `INVALID_STREAM` | TESTOUT, FFPROBE |
 | TST-524 | REQ-41, REQ-42, REQ-52; NFR-04 (indicative) | 4.6.4 | CFG-MW; `T` = start of the previous event of `svc-2` | 1. `play svc-2` with `T`; 2. extract the first video frame of `seg-0.ts` | `session_state.start` = `T`, `start_time` = `T`; first frame time code `T mod 600` ± 1 s | TESTOUT, PHOTO |
 | TST-525 | REQ-44 – REQ-46 (AL part), REQ-49 – REQ-54; D-14; US-14 – US-16 | 4.6.5; T-14, T-24, T-15, T-17, T-16, T-18 | CFG-MW; HLS checker; a listing of `/tmp/m15-hls/<n>/` every 50 ms; `T` = start of the previous event of `svc-3`; keys of 5.2.2 | 1. `play svc-3` with `T`; 2. `set_key` KX; 3. wait 60 s; `set_key` K3; 4. `play svc-3 "live"`; 5. `play svc-4 "live"`, `set_key svc-4 K3`, then `set_key svc-4 K4` | 1: `key_required` `no_key`, `start` = `T`; head-end log shows `/stop`; no segment file and no playlist at any listing; 2: `validating_key`, then `key_required` `key_rejected` within 3 s after the first RTP datagram of the attempt (middleware log); no segment ever written; 3: `starting` … `playing` with `start` = `T` and `start_time` = `T`; first frame of `seg-0.ts` shows `T mod 600` ± 1 s (not `T + 60`); 4: `playing` without `key_required`; 5: K3 rejected, K4 accepted | TESTOUT, LOG, PHOTO |
@@ -3346,7 +3353,7 @@ Acceptance tests verify the user stories of Section 1.9 in the target environmen
 | TST-604 | US-02 AC1, AC2; REQ-06, REQ-07, REQ-11 | 4.6.6 | PRE-2; K3 and K4 entered once (so that 3 and 4 play) | 1. `↑` four times, 5 s apart; 2. `↓` four times, 5 s apart; 3. `↑` three times within 300 ms | 1: services 2, 3, 4, 1 play live in this order (burned-in names); 2: 4, 3, 2, 1; 3: only service 4 is started: one `/start` for `svc-4` in the head-end log, no `/start` for services 2 and 3 | PHOTO, LOG |
 | TST-605 | US-03 AC1, AC2; REQ-08, REQ-09 | ER-06 | PRE-2, "Demo One" playing | 1. `2`, `ENTER`; 2. `1` and wait; 3. `9`, `ENTER`; 4. `1`, `2`, `ENTER`; 5. `2`, `BACKSPACE`; 6. `2`, `ESC` | 1: typed number shown, then "Demo Two"; 2: "Demo One" 2 s after the digit; 3 and 4: "Invalid service number" for 3 s, the current service keeps playing; 5 and 6: entry disappears, no change | PHOTO |
 | TST-606 | US-04 AC1 – AC3; REQ-10 | — | PRE-2, "Demo Two" playing | 1. `ENTER`; 2. `↓`, `ENTER`; 3. `L`, `↑`, `ESC` | 1: list with 4 services, lock symbol on 3 and 4, highlight on 2; 2: "Demo One" plays live, list closed; 3: list closed, "Demo One" unchanged | PHOTO |
-| TST-607 | US-05 AC1; US-17 AC1; HLR-01 | 4.6.3 | PRE-2; K3 and K4 entered once | 1. Select services 1 – 4 by number | Each service plays live with picture, sound and its burned-in name; the time code equals `now mod 600` ± 2 s; services 1 and 2 never open the key dialog; each tone is distinct | PHOTO, NOTE |
+| TST-607 | US-05 AC1; US-17 AC1; HLR-01 | 4.6.3 | PRE-2, PRE-3; K3 and K4 entered once | 1. Select services 1 – 4 by number; 2. take the screenshot at each `frame` mark | Each service plays live with picture, sound and its burned-in name; the time code of the first picture equals `start_time mod 600` ± 1 s, with `start_time` of the session's `session_state` in the middleware log (the picture of an HLS live stream lags the wall clock by the segment and loading delay, which no requirement limits, so the time code is compared with the start time of the stream and not with the clock); services 1 and 2 never open the key dialog; each tone is distinct | PHOTO, LOG, NOTE |
 | TST-608 | US-05 AC2; REQ-20 | T-20; ER-19 | PRE-1 with the head-end stub instead of P3 | 1. Start; observe 10 s | "No signal" appears 5 s ± 0.5 s after the head-end stub accepted `/start` (stub log) | PHOTO, LOG |
 | TST-609 | US-06 AC1 – AC3; REQ-27, REQ-28 | — | PRE-2 | 1. `↑`; 2. wait 6 s; 3. `I`; 4. previous event of "Demo Two" from the EPG | 1: dialog with number, name, title, start–end time of the running event, `LIVE`, protection status; 2: hidden after 5 s; 3: shown again; 4: `ARCHIVE` with the playback time `HH:MM:SS` of the previous event's start | PHOTO |
 | TST-610 | US-07 AC1, AC2; US-08 AC1, AC2; REQ-29 – REQ-31 | — | PRE-2 | 1. `+` ×5; 2. `-` ×10; 3. `+` ×5; `M`; 4. `↑`; 5. `M`; 6. `M`, `+` | 1: indicator 100 %, hidden after 2 s; 2: 0 %, silent; 3: 50 %, then muted with the mute indicator staying; 4: still muted on the new service; 5: unmuted at 50 %; 6: unmuted at 60 % | PHOTO, NOTE |
@@ -3358,13 +3365,13 @@ Acceptance tests verify the user stories of Section 1.9 in the target environmen
 | TST-616 | US-14 AC1 – AC5; REQ-45 – REQ-49 | 4.6.5; ER-29, ER-31 | PRE-2 (no key stored) | 1. EPG: previous event of "Premium One", `ENTER`; 2. type 5 characters, `BACKSPACE`, `ESC`; 3. wait 30 s; `K`; type K3; `ENTER` | 1: no picture of "Premium One"; the key dialog "Enter the decryption key" opens by itself; 2: masked `•` with counter `5/32`, `4/32`, then the message "Protected service – press K to enter the key"; 3: playback in `ARCHIVE` with the time code of the event start (`00:00` / `05:00` ± 1 s), not 30 s later | PHOTO |
 | TST-617 | US-15 AC1 – AC3; REQ-51, REQ-54 | — | After TST-616 | 1. Watch 30 s; `I`; 2. `↓`, then `↑` back; 3. `←` | 1: picture and sound without visible corruption, time code running from the selected time, info "Protected – key OK"; 2 and 3: "Premium One" plays without the key dialog | PHOTO, NOTE |
 | TST-618 | US-16 AC1 – AC4; REQ-46, REQ-51, REQ-53, REQ-54; D-11, D-14 | 4.6.5; ER-30 | PRE-2 (no key stored); screen recorded during the test | 1. EPG: previous event of "Premium One", `ENTER`; enter KX; 2. wait 60 s; enter K3; 3. number `4`; enter K3; 4. enter K4 | 1: "Incorrect decryption key" dialog; middleware log: at most 3 000 ms from the first `Locked` of the attempt to `key_required` `key_rejected` (`t_reject`, NFR-03); no frame of "Premium One" in the recording; 2: playback with the time code of the event start ± 1 s (not 60 s later), no application restart; 3: K3 rejected for "Premium Two"; 4: "Premium Two" plays live | PHOTO, LOG |
-| TST-619 | US-18 AC1; REQ-07, REQ-39, REQ-56; HLR-10 | 4.6.6; ER-36 | PRE-2; KX stored for `svc-3` (entered once) | 1. Number `3` and, while the key is being checked, `2` `ENTER`; 2. EPG: previous event of "Demo One" `ENTER`, then immediately `B`; 3. `↑` `↑` `L` `ENTER` on "Demo One" within 1 s | 1: "Demo Two" plays, no "Incorrect decryption key" shown; 2: `LIVE` "Demo One"; 3: "Demo One" plays; in every case the head-end has one session at the end and `/tmp/m15-hls` one session directory | PHOTO, LOG |
+| TST-619 | US-18 AC1; REQ-07, REQ-39, REQ-56; HLR-10 | 4.6.6; ER-36 | PRE-2 | 1. EPG: previous event of "Demo One" `ENTER`, then immediately `B`; 2. `↑` `↑` `L` `ENTER` on "Demo One" within 1 s | 1: `LIVE` "Demo One"; 2: "Demo One" plays; in both cases the head-end has one session at the end and `/tmp/m15-hls` one session directory. A new selection while a key is being checked (about 0.1 – 0.3 s) cannot be timed by hand; it is tested with exact timing in TST-527 and TST-719 | PHOTO, LOG |
 | TST-620 | US-19 AC1 – AC3; REQ-05, REQ-20, REQ-69 | 4.6.8; ER-02, ER-14, ER-15, ER-20 | PRE-2, "Demo One" live | 1. Suspend P3 for 10 s (SIGSTOP / SIGCONT); 2. stop P4; zap `↑`, `E`; start P4; 3. stop P3, wait 25 s, start P3, `↑` | 1: "No signal" 3 s ± 0.5 s after the suspension, picture back within 3 s after the resume without a key press; 2: zap works, EPG "No information"; 3: "No signal", then the next service plays without restarting the receiver | PHOTO, LOG |
 | TST-621 | US-20 AC1, AC2; REQ-64 | — | PRE-2 | 1. Compare `content/services.json` with `curl GET /services` and the EPG on screen; 2. at three moments at least 2 min apart, compare the title of the running event in the info dialog with the burned-in title | 1: names, numbers and titles equal; 2: equal at all three moments, for the service shown | PHOTO, LOG |
 | TST-622 | US-21 AC1 – AC4; REQ-42, REQ-65, REQ-68 | ER-10, ER-17 | PRE-2 | 1. `curl /start` with `client_port` 5005: `svc-1` with `T = now − 7300`, and `svc-9` live; RTP receiver on port 5005 for 3 s; 2. kill P2 (SIGKILL); RTP receiver on port 5004 for 20 s; 3. `curl /start` `svc-3` live with `client_port` 5005, capture 5 s, `ffprobe` and packet scan of the capture | 1: `400 OUT_OF_ARCHIVE`, `404 SERVICE_NOT_FOUND`, no datagram; 2: datagrams stop at most 16 s after the kill; 3: `ffprobe` reads PAT and PMT (PIDs 4096 / 256 / 257); every packet of PIDs 256 and 257 with ≥ 16 payload bytes has scrambling bits `'10'` | TESTOUT, LOG, FFPROBE |
-| TST-623 | US-22 AC1 – AC3; HLR-23; NFR-12, NFR-13, NFR-17 | — | PRE-1 | 1. Follow `README.md` from a fresh clone: generate and package the content, build, `scripts/start.sh`; 2. run the demo scenario of Section 5.8; 3. `scripts/stop.sh`; `pgrep -f "dtv-middleware|headend.py|mw_server.py|chromium"` | 1: the system starts with the documented commands only; 2: logs contain the evidence of REQ-59 (request, PAT/PMT with PIDs, protection, key accepted / rejected) in the format of NFR-13; 3: no process left | LOG |
+| TST-623 | US-22 AC1 – AC3; HLR-23; NFR-12, NFR-13, NFR-17 | — | PRE-1 | 1. Follow `README.md` from a fresh clone: generate and package the content, build, `scripts/start.sh`; 2. run the demo scenario of Section 5.8; 3. `scripts/stop.sh`; `pgrep -f "dtv-middleware|headend|mw_server|chromium"` | 1: the system starts with the documented commands only; 2: logs contain the evidence of REQ-59 (request, PAT/PMT with PIDs, protection, key accepted / rejected) in the format of NFR-13; 3: no process left | LOG |
 | TST-624 | REQ-61; HLR-08 | — | PRE-2; mouse disconnected | 1. Execute TST-601 – TST-619 with the keyboard only | Every function reachable; no mouse cursor visible at any time | NOTE |
-| TST-625 | HLR-20, HLR-21 | — | PRE-2 | 1. `ss -tulpn` while playing; 2. page source in a normal Chromium window: `view-source:http://127.0.0.1:8090/` | 1: all listening sockets of the system bound to `127.0.0.1` (8080, 8081, 8090, UDP 5004); 2: hls.js loaded from `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js` | TESTOUT, NOTE |
+| TST-625 | HLR-20, HLR-21 | — | PRE-2 | 1. `ss -tulpn` while playing; 2. page source in a normal Chromium window: `view-source:http://127.0.0.1:8090/` | 1: all listening sockets of the system bound to `127.0.0.1` (8080, 8081, 8090, UDP 5004; Sections 4.2.5 and 4.7.1); 2: hls.js loaded from `https://cdn.jsdelivr.net/npm/hls.js@1.7.4/dist/hls.min.js` | TESTOUT, NOTE |
 | TST-626 | US-02 – US-16; REQ-45, REQ-46, REQ-49, REQ-51, REQ-53; D-14 | 4.6.5 | PRE-1; preparation of Section 5.8.2 on the defense laptop with the projector | 1. Execute the script of Section 5.8.3 with a stopwatch, recording the screen | Every observation of the column "What the audience sees" occurs; the script ends within 4 min 30 s | PHOTO, LOG, NOTE |
 
 ### 5.6 Non-functional, robustness and concurrency tests
@@ -3396,14 +3403,14 @@ These tests measure the non-functional requirements of Section 2.4 in E3 with th
 | TST-703 | NFR-03; REQ-51 | T-17 | PRE-2, PRE-3 | 1. 10 times, alternately for "Premium One" and "Premium Two": select the service, enter KX | In all 10 attempts `t_reject` ≤ 3 000 ms; "Incorrect decryption key" shown each time | MEASURE, LOG |
 | TST-704 | NFR-04; REQ-42; D-14 | 4.6.4, 4.6.5 | PRE-2, PRE-3; K3 entered | 1. Start 10 archive playbacks: previous event of each of the 4 services, the event starting 1 h back for "Demo One" and "Premium One", `←` once, `←` 4 times (−2:00), `←` from live after waiting until `now mod 600` = 10 (start point before the loop boundary), and the oldest available event of "Demo Two"; 2. take the screenshot at each `frame` mark | For every start: burned-in time code of the first picture equals `T mod 600` of the effective start point (`session_state.start`) within ±1 s | MEASURE, PHOTO |
 | TST-705 | NFR-05 | 4.4.3 | PRE-2, PRE-3 | 1. Press each of these keys 10 times in its context, at least 1 s apart: a digit, `↑`, `←`, `L`, `↓` in the list, `E`, `→` in the EPG, `I`, `+`, `M`, `K`, a hexadecimal character in the key dialog | `t_osd` ≤ 200 ms for all 120 presses | MEASURE |
-| TST-706 | NFR-06; REQ-24, REQ-66; HLR-17 | B4, B5, B7, B8, B9 | PRE-2, PRE-3; "Demo One" live | 1. Play for 30 min without a key press; 2. sample the memory of P2 every 10 s and the number of files in `/tmp/m15-hls/<n>/` every 1 s; 3. `pgrep` the four processes every 10 s | No process terminates; at least 3 loop boundaries passed (`#EXT-X-DISCONTINUITY` seen 3 times in the middleware log); every `t_gap` ≤ 1 000 ms; `VmRSS` maximum of minutes 1 – 30 minus `VmRSS` at minute 1 ≤ 20 MB; never more than 8 segment files `seg-*.ts` (REQ-23, Section 4.5) | MEASURE, LOG |
+| TST-706 | NFR-06; REQ-24, REQ-66; HLR-17 | B4, B5, B7, B8, B9 | PRE-2, PRE-3; "Demo One" live | 1. Play for 30 min without a key press; 2. sample the memory of P2 every 10 s and the number of files in `/tmp/m15-hls/<n>/` every 1 s; 3. `pgrep` the four processes every 10 s | No process terminates; at least 3 loop boundaries passed (`#EXT-X-DISCONTINUITY` seen 3 times by `tests/tools/hls_check.py`, which polls the playlist of the session in parallel); every `t_gap` ≤ 1 000 ms; `VmRSS` maximum of minutes 1 – 30 minus `VmRSS` at minute 1 ≤ 20 MB; never more than 8 segment files `seg-*.ts` (REQ-23, Section 4.5, B7) | MEASURE, LOG, TESTOUT |
 | TST-707 | NFR-06 (protected path) | B6 | As TST-706 with "Premium One" and K3 | 1. As TST-706 | As TST-706 | MEASURE, LOG |
 | TST-708 | NFR-07; REQ-58 | ER-18, ER-33 | PRE-2; "Demo One" live | 1. Send IN-01 – IN-04 to ports 8080 and 8081 and IN-07 to `/ws/control` (second WebSocket client) during playback; 2. zap `↑` | 1: playback continues without `t_gap` > 1 000 ms; error responses as in Section 5.2.5; 2: the next service plays; no process terminated | TESTOUT, LOG |
 | TST-709 | NFR-07; REQ-13 | ER-21 | PRE-2; "Demo One" live | 1. Send random datagrams (IN-08, random part) to UDP 5004 at 1 000 datagrams/s for 60 s during playback | Playback continues; `rtp_invalid` in the middleware statistics ≥ 59 000; no process terminated; no `no_signal` | TESTOUT, LOG |
 | TST-710 | NFR-07; REQ-69, REQ-68 | ER-02, ER-14, ER-15, ER-17 | PRE-2; "Demo One" live | 1. Stop P4, wait 10 s, start P4; 2. stop P3, wait 10 s, start P3; 3. zap `↑`; 4. kill P2 with SIGKILL and watch the head-end log | 1 – 3: no process other than the stopped one terminates; after both restarts the zap plays the next service without restarting the receiver; 4: the head-end stops sending (`session expired`) at most 16 s after the kill | TESTOUT, LOG |
-| TST-711 | NFR-08; HLR-16, HLR-17; REQ-55 | — | PRE-1; `tcpdump -i lo -w <capture>` started before `scripts/start.sh` | 1. Run the demo scenario of Section 5.8 (K3, KX and K4 entered); 2. `scripts/stop.sh`, stop `tcpdump`; 3. search every file under `logs/`, every file written during the run below the repository and below `/tmp` (by modification time), for the patterns of Section 5.2.2; 4. reassemble the TCP streams of the capture; search all streams and UDP payloads for the patterns, separately inside and outside the WebSocket connection to `/ws/control`; 5. list `/tmp/m15-hls` | 3: no match; 4: no match outside `/ws/control`; at least one match inside it (proof that the search finds the keys); 5: empty; the capture file is deleted after the analysis | CAPTURE, TESTOUT |
-| TST-712 | NFR-10 | — | Fresh clone, build directory empty | 1. Build; run `ctest --test-dir build`, `python3 -m unittest discover -s server/tests`, `node --test webui/tests/*.test.js`; 2. check that tests with the IDs of Section 5.3 exist for AL-PSI, AL-DSC, AL-OUT, AL-SES, HAL-TUN, HAL-DMX, HAL-DSC, every PAL module, SRV-PKG and SRV-ARC | 1: each of the three commands runs all tests of its part and reports 0 failures; 2: every listed module has at least one test function named with a `TST` ID | TESTOUT |
-| TST-713 | NFR-11 | — | Fresh clone | 1. Build with `-Wall -Wextra` and save the build log; 2. list the imports of all Python files and compare them with `sys.stdlib_module_names` plus `cryptography`; 3. inspect `webui/` | 1: no line containing `warning:` in the build log; 2: no other module; 3: no build configuration, every script loaded as an ES module (`type="module"`), except the hls.js tag of Section 3.8 | TESTOUT |
+| TST-711 | NFR-08; HLR-16, HLR-17; REQ-55 | — | PRE-1; `tcpdump -i lo -w <capture>` started before `scripts/start.sh` | 1. Run the demo scenario of Section 5.8 (K3, KX and K4 entered); 2. `scripts/stop.sh`, stop `tcpdump`; 3. search every file under `logs/`, every file written during the run below the repository and below `/tmp` (by modification time), for the patterns of Section 5.2.2; 4. reassemble the TCP streams of the capture and decode the WebSocket frames of the connection to `/ws/control` (frames sent by the browser are masked with a random key, RFC 6455 Section 5.3, so they are unmasked before the search; a search of the raw stream would never find the key there); search all streams and UDP payloads for the patterns, separately inside and outside the WebSocket connection to `/ws/control`; 5. list `/tmp/m15-hls` | 3: no match; 4: no match outside `/ws/control`; at least one match inside it (proof that the search finds the keys); 5: empty; the capture file is deleted after the analysis | CAPTURE, TESTOUT |
+| TST-712 | NFR-10 | — | Fresh clone, build directory empty | 1. Build; run `ctest --test-dir build` and `node --test webui/tests/*.test.js`; 2. check that tests with the IDs of Section 5.3 exist for AL-PSI, AL-DSC, AL-OUT, AL-SES, HAL-TUN, HAL-DMX, HAL-DSC, every PAL module, SRV-PKG and SRV-ARC | 1: each of the three commands runs all tests of its part and reports 0 failures; 2: every listed module has at least one test function named with a `TST` ID | TESTOUT |
+| TST-713 | NFR-11 | — | Fresh clone | 1. Build with `-Wall -Wextra` and save the build log; 2. list the imports of all Python test tools and compare them with `sys.stdlib_module_names`; 3. inspect `webui/` | 1: no line containing `warning:` in the build log; 2: no other module; 3: no build configuration, every script loaded as an ES module (`type="module"`), except the hls.js tag of Section 3.8 | TESTOUT |
 | TST-714 | NFR-12; HLR-23 | ER-37, ER-40 | PRE-1 | 1. `time scripts/start.sh`; 2. `scripts/stop.sh`; 3. occupy port 8081 with another process, run `scripts/start.sh`; 4. rename `webui/`, run `scripts/start.sh`; 5. break `middleware/main/middleware.json`, run `scripts/start.sh` | 1: picture of "Demo One" within 15 s; 2: no process left; 3: stops with a message naming the head-end; 4: stops with a message naming the Web application files; 5: stops with a message naming the middleware and the file; in 3 – 5 no component of the run is left running | TESTOUT, LOG |
 | TST-715 | NFR-13 | — | Logs of TST-711 | 1. Check every line of `logs/*.log` except `chromium.log` against the regular expression of TST-225 | One log file per component (`middleware`, `headend`, `mw_server`); every line matches | TESTOUT |
 | TST-716 | NFR-14 | — | PRE-2 at 1920×1080; the projector at I-5 | 1. In a normal Chromium window at 1920×1080, read the computed `font-size` of every OSD text element in every context (developer tools); 2. photograph each OSD on the projector from the last row of the room | 1: every value ≥ 28 px; light text on a dark semi-transparent background; all texts in English; 2: every text readable | PHOTO, NOTE |
