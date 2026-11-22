@@ -9,7 +9,7 @@
 | Team | Lazar Zubović (RA 13/2023), Smilja Krulj (RA 145/2023), Ivan Berenić (RA 59/2023) |
 | Implementation variant | Linux + Web |
 | Defense | 2026-12-03 |
-| Document version | 1.0 — **frozen** (2026-11-22): Sections 1 – 5 complete and confirmed by the team |
+| Document version | 1.1 — **frozen** (2026-11-22): consistency fixes of the design (data path before the `/start` response, `stream_info`, `playing_since`, segment bound 8, keepalive loss = 3 failed keepalives, head-end expiry ≤ 16 s, archive pacing keeps the D-08 timeline, UI reconnect, layering rule R1, Node.js test command, start commands of the processes, error body of IF-EXT-04); 1.0 (2026-11-22): Sections 1 – 5 complete and confirmed by the team |
 | Status | Frozen. Changes only on `main`, with the agreement of the owners concerned (rule 2 of Section 2.2.7), each with a new document version; only Section 5.9 (test results) is updated without a version change |
 
 ### Document conventions
@@ -228,7 +228,7 @@ Where the task does not prescribe a solution, the team fixed the variant that is
 | ID | Topic | Decision | Rationale |
 |---|---|---|---|
 | D-01 | Source of previously broadcast content | **Server-side archive (network catch-up).** The head-end can stream every service from any moment inside the archive window. The receiver has no local timeshift buffer and no storage. | The task asks for a *previously broadcast* program, which a local buffer cannot contain if the receiver was not on at that time. Rewind becomes just a new stream request with a start time; the receiver needs no disk buffer or index, and still parses PAT/PMT, decrypts and validates the key for every rewind. Confirmed as a valid solution by course staff. |
-| D-02 | How the viewer selects a time | (a) **EPG:** selecting an available past program and pressing `ENTER` starts it from the program's start time. (b) **Step keys:** `←` / `→` move the playback position by **30 s** back / forward, relative to the current position. `B` returns to live. Moving forward past the live point switches to live. Moving back past the start of the archive window stops at the window start. | Both methods reuse the same "start at time T" request; no separate time-entry dialog is needed. |
+| D-02 | How the viewer selects a time | (a) **EPG:** selecting an available past program and pressing `ENTER` starts it from the program's start time. (b) **Step keys:** `←` / `→` move the playback position by **30 s** back / forward, relative to the current position. `B` returns to live. Moving forward past the live point switches to live. Moving back past the start of the archive window stops at the window start (precisely 5 s after it, so that the request is still inside the window when it reaches the head-end; REQ-41). | Both methods reuse the same "start at time T" request; no separate time-entry dialog is needed. |
 | D-03 | Source of the decryption key | **The viewer enters the key** in the key dialog: exactly 32 hexadecimal characters (`0–9`, `A–F`), representing a 128-bit key. The key is kept by the middleware in memory, per service, for the running session; it is not written to disk. | Correct and incorrect key are demonstrated simply by typing two different keys; no authorization logic on the server; uses "letters for dialogs" from the task. |
 | D-04 | Protection scheme | **One fixed AES-128 key per protected service**, the same for live and archive, never changing. **Encrypted:** the payload of TS packets carrying the audio and video PIDs. **Mode:** AES-128-CBC, IV = 16 zero bytes, restarted for every TS packet; the largest multiple of 16 bytes from the payload start is encrypted, the remaining bytes (fewer than 16) stay in the clear. **In the clear:** TS headers, adaptation fields (including PCR), PAT and PMT. **Signalling:** encrypted packets have `transport_scrambling_control = '10'`, all others `'00'`. The receiver detects protection from these bits; no CA descriptor, ECM or EMM is used. Content files are encrypted once, offline, by the team's packaging tool. | Fixed key as confirmed by course staff; per-packet encryption with the header in the clear follows the scrambling model of Lecture 3 (headers and PSI readable, payload protected); offline encryption keeps the head-end a plain file streamer. |
 | D-05 | Unicast vs multicast | **Unicast** RTP over UDP to the requesting receiver; no IP multicast, no IGMP. RTP payload: MPEG-2 TS as in RFC 2250 (payload type 33), **7 TS packets (1316 bytes) per RTP packet**. | "On client request" delivery from the task is naturally one-to-one; unicast works on loopback without any network configuration. |
@@ -311,7 +311,7 @@ As a viewer, I want past programs that are still in the archive to be marked in 
 
 **US-11 — Select a past program from the EPG** [TASK]
 As a viewer, I want to select a program that has already been broadcast and start watching it from its beginning, so that I can catch up on something I missed.
-- AC1: Given an available past event is selected in the EPG, when I press `ENTER`, then the receiver requests the stream of that service starting at the event start time, the EPG closes and the program plays from its beginning in ARCHIVE mode.
+- AC1: Given an available past event is selected in the EPG, when I press `ENTER`, then the receiver requests the stream of that service starting at the event start time, the EPG closes and the program plays from its beginning in ARCHIVE mode. (If the beginning of the event has left the archive window in the meantime, playback starts at the oldest moment still in the archive, AC3 of US-12.)
 - AC2: Given the selected event is not available, then "Content not available in archive" is shown and the current playback continues.
 - AC3: Given the selected event is the one currently running, then playback starts from its start time (in the archive), not from live.
 
@@ -319,7 +319,7 @@ As a viewer, I want to select a program that has already been broadcast and star
 As a viewer, I want to move playback back in time on the current service, so that I can re-watch a moment I just missed.
 - AC1: When I press `←` during playback, then the playback position moves 30 s back from the current position and playback restarts from there in ARCHIVE mode; the playback time and the distance from live are shown.
 - AC2: When I press `→` in ARCHIVE mode, then the position moves 30 s forward; if that reaches the live point, playback switches to LIVE.
-- AC3: Given the new position would be before the start of the archive window, then the position is set to the window start.
+- AC3: Given the new position would be before the start of the archive window, then the position is set to the window start (5 s after it, D-02).
 - AC4: When I press `←`/`→` several times quickly, then only the final position is requested from the head-end.
 
 **US-13 — Return to live** [TASK]
@@ -342,7 +342,7 @@ As a viewer, I want protected content to play normally when my key is correct, s
 
 **US-16 — Incorrect key is detected and reported** [TASK]
 As a viewer, I want to be told clearly when my key is wrong, so that I understand why I cannot watch and can correct it.
-- AC1: Given an incorrect key, when protected content is requested, then the receiver detects within 3 s that decryption does not produce valid data and shows "Incorrect decryption key".
+- AC1: Given an incorrect key, when protected content is requested, then the receiver detects within 3 s after the stream data arrives that decryption does not produce valid data and shows "Incorrect decryption key".
 - AC2: No video or audio of the protected service is presented; the stream session is stopped, the incorrect key is discarded and the key dialog opens again.
 - AC3: After entering the correct key, playback starts without restarting the application, from the same start point that was requested before the incorrect key (D-14): for an archive request, the burned-in time code shows the originally selected time T, regardless of how long the key entry took.
 - AC4: The key of one protected service does not unlock the other protected service (services 3 and 4 have different keys).
@@ -375,7 +375,7 @@ As an operator, I want the head-end to stream any service from a requested time 
 - AC1: Given a start request with a time inside the archive window, then the head-end sends MPEG-TS over RTP starting at the content position that corresponds to that time.
 - AC2: For protected services, audio/video payloads are encrypted with the service key (D-04), while PAT and PMT remain readable.
 - AC3: Given a start time outside the archive window or an unknown service, then the head-end rejects the request with an error response and sends no stream.
-- AC4: Given the receiver stops or crashes during a session, then the head-end stops sending that stream within 15 s.
+- AC4: Given the receiver stops or crashes during a session, then the head-end stops sending that stream at most 16 s after the receiver stopped (15 s without keepalive, checked every second).
 
 **US-22 — Repeatable demonstration** [GUIDELINES]
 As a demonstrator, I want to start the whole system with a documented procedure and a known test data set, so that the defense demo is repeatable.
@@ -448,7 +448,7 @@ A high-level requirement is considered fulfilled when all detailed requirements 
 | HLR-14 | The system shall include the operator (production) side built by the team: a packaging tool that encrypts content, a streaming head-end and an OTT MW REST server. | [TASK]; Section 1.7.1 | I, D |
 | HLR-15 | The head-end shall deliver any configured service, live or from any moment of the archive window, as a unicast MPEG-TS over RTP stream, started and stopped on the receiver's request. | [TASK]; D-01, D-05, D-06, D-08 | T |
 | HLR-16 | Protected content shall leave the operator side only in encrypted form; the decryption key shall never be sent to or from the operator side; inside the receiver it travels only from the Web application to the DTV middleware (IF-INT-01) and from the AL to the DTV SDK (IF-INT-04). | D-03, D-04 | I, A |
-| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06; it shall not store content, keys or archive data persistently. The only content written to disk are the temporary HLS files of the current session (D-13): at most 10 segments at a time, deleted when the session ends and at start-up. | Section 1.7.3; D-01, D-03, D-13 | I, T |
+| HLR-17 | The receiver shall communicate with the outside world only through the external interfaces IF-EXT-01 … IF-EXT-06; it shall not store content, keys or archive data persistently. The only content written to disk are the temporary HLS files of the current session (D-13): at most 8 segment files at a time (including the one being written), deleted when the session ends and at start-up. | Section 1.7.3; D-01, D-03, D-13 | I, T |
 
 #### 2.1.3 Requirements derived from technical constraints
 
@@ -591,7 +591,7 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 - **Application** — *what does the viewer see and press?* Presentation and user interaction only; no protocol, parsing or decryption logic.
 - **Application layer (AL) — DTV middleware** — *what does the viewer want?* (zap, rewind, unlock). Service model, session control, PAT/PMT parsing, protection detection, key management and validation, HLS packaging of the output (the "HLS server" of the middleware).
 - **Platform layer (PAL) — OS and DTV SDK** — *what does the programmer want?* Tune, open a PID filter, set a descrambling key, write a file, send an HTTP request, talk to the UI, start a timer — as objects with a defined lifecycle, on top of the OS and common libraries.
-- **HAL** — *what can the hardware do?* Receive a transport stream (tuner), filter PIDs and assemble sections (demultiplexer), decrypt packets with a key (descrambler). Because the receiver has no DTV hardware, these blocks are implemented in software.
+- **HAL** — *what can the hardware do?* Receive a transport stream (tuner), filter PIDs and assemble sections (demultiplexer), decrypt packets with a key (descrambler). Because the receiver has no DTV hardware, these blocks are implemented in software; like hardware drivers on the kernel, they run on the OS and the common libraries (sockets, OpenSSL libcrypto), which are a reused base and not a layer of the team's call hierarchy (rule R1 of Section 4.1.4).
 
 | Layer (Lecture 5) | In this system | Built / reused / simulated | Work package |
 |---|---|---|---|
@@ -601,7 +601,7 @@ The receiver follows the host-software layering of Lecture 5. Each layer answers
 | Middleware / AL — application runtime | Chromium in kiosk mode | Reused | — |
 | Platform / PAL — DTV SDK | `ITuner` and `IDemux` (IF-INT-04): tuning, filters, descrambler keys over the HAL | Built | **WP-PAL** |
 | Platform / PAL — other platform services | `IHttpClient`, `IUiChannel` (HTTP/WebSocket server), `IHlsStore`, `IClock`, `ILogger` | Built (over reused libraries) | **WP-PAL** |
-| Platform / PAL — OS and common libraries | Linux, sockets, C++17 threads, OpenSSL libcrypto, Mongoose, nlohmann/json; browser MSE | Reused | — |
+| Platform / PAL — OS and common libraries | Linux, sockets, C++17 threads, OpenSSL libcrypto, Mongoose, nlohmann/json; browser MSE. Also the base on which the software HAL blocks run (HAL-TUN: sockets, HAL-DSC: OpenSSL). | Reused | — |
 | HAL — tuner, demux, descrambler | IP tuner (RTP/UDP reception), software demultiplexer, software descrambler | Built — **software simulation of hardware blocks** | **WP-PAL** |
 | HAL — drivers | Linux network stack (loopback), GPU/audio drivers used by the browser | Reused, not modified; the operator network is simulated by loopback | — |
 
@@ -664,7 +664,7 @@ Ports are defaults; every component reads them from its configuration file. The 
 | Pattern | Problem it solves | Where it appears |
 |---|---|---|
 | Layered architecture (Lecture 5) | Separates what the viewer sees (application), what the viewer wants (AL) and what the platform provides (PAL), so that each layer can be developed and tested independently — by a different team member. | Section 2.2.3; one work package per layer. |
-| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | HAL-TUN receive thread (producer) → HAL-DMX / HAL-DSC → DTV SDK filter callbacks → AL queue → AL-PSI / AL-DSC / AL-OUT (consumer and producer) → HLS segments in the file store (bounded to 10 segments) → browser fetching them with hls.js (consumer); on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
+| Producer–consumer with bounded queues | The network delivers packets at its own rate, the AL and the browser consume at theirs; a slow consumer must not stall reception. Each stage owns its buffers; queues have a fixed capacity and a defined overflow policy. | HAL-TUN receive thread (producer) → HAL-DMX / HAL-DSC → DTV SDK filter callbacks → AL queue → AL-PSI / AL-DSC / AL-OUT (consumer and producer) → HLS segments in the file store (bounded to 8 segment files) → browser fetching them with hls.js (consumer); on the operator side, SRV-ARC reading the file and SRV-RTP sending paced RTP. |
 | State machine | Playback depends on the current state (starting, waiting for PSI, waiting for a key, validating a key, playing, no signal); an event that is valid in one state must be ignored or handled differently in another. | AL-SES session state machine; context handling in APP-KEY. Specified as a state diagram and a transition table in Section 4. |
 | Asynchronous command / event with "latest request wins" | Starting a stream takes time; the viewer may press a new key before the previous request completes. Acceptance of a command is separated from its completion; every session carries a generation number, and events or data of an older generation are discarded. | IF-INT-01 (request id → response, later events); AL-SES stops the previous session before starting a new one; APP-PRS ignores events of superseded requests. |
 | Adapter / wrapper (DTV SDK and glue layer, Lectures 6–7) | Keeps the AL independent of the HAL blocks, Mongoose, OpenSSL and the socket API, so that it is portable and can be unit-tested with fakes while the PAL and HAL are still being written. The DTV SDK plays the role of Nexus / the Android Tuner SDK: it turns the tuner, demux and descrambler into objects with a tune / open filter / start / event lifecycle. | IF-INT-04: interfaces used by the AL, implementations in the PAL (over the HAL), fake implementations in the AL tests. |
@@ -719,7 +719,7 @@ Shared files, changed only on `main` and merged into all branches: `SPECIFICATIO
 | FFmpeg / ffprobe | 6.1.1 | WP-PAL (SRV-GEN), all (verification) | Content generation; independent inspection of TS files |
 | Chromium | Ubuntu 24.04 package | WP-APP | Runtime of the Web application (kiosk mode) |
 | hls.js | 1.7.4, loaded from jsDelivr | WP-APP | HLS playback (TS demux in JavaScript, playback through MSE) [HLR-21] |
-| Node.js | 18.19 (Ubuntu 24.04 package `nodejs`) | WP-APP (tests only) | Runs the unit tests of the presenters and the model (`node --test`, Section 4.4.6); not used at run time |
+| Node.js | 18.19 (Ubuntu 24.04 package `nodejs`) | WP-APP (tests only) | Runs the unit tests of the presenters and the model (`node --test webui/tests/*.test.js`, Section 4.4.6; the file list is expanded by the shell, so the command also works with Node.js 21 and later, which no longer accept a directory); not used at run time |
 | GoogleTest | 1.14.0 (Ubuntu 24.04 package `libgtest-dev`) | WP-AL, WP-PAL (tests only) | Unit-test framework of the C++ tests, registered with `ctest` through CMake `gtest_discover_tests` (Section 5.1.1); not linked into `dtv-middleware` |
 | tcpdump | 4.99.4 (Ubuntu 24.04 package) | Verification only | Loopback packet capture for the analysis of IF-EXT-05 and NFR-08 (Section 5.1.6) |
 | xdotool | 3.20160805.1 (Ubuntu 24.04 package) | Verification only | Sends a fixed key sequence to the Chromium window in the random-key test (Section 5.6) |
@@ -754,14 +754,14 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-12 | On `play`, the AL shall obtain the service info of the service (`GET /services/{id}`, cached after the first success), choose a new random SSRC for the session, tune the tuner (`ITuner::tune`) to the configured receiver UDP port and that SSRC, and then send `POST /start` with the port and the SSRC to the service's `stream_control_url`; the session shall be in state `starting` until the response arrives and in `waiting_stream` after a successful response. | AL | US-05 AC1; HLR-15 | T |
+| REQ-12 | On `play`, the AL shall obtain the service info of the service (`GET /services/{id}`, cached after the first success), choose a new random SSRC for the session, tune the tuner (`ITuner::tune`) to the configured receiver UDP port and that SSRC, and then send `POST /start` with the port and the SSRC to the service's `stream_control_url`; the session shall be in state `starting` until the response arrives and in `waiting_stream` after a successful response (or in the state already reached by stream data that arrived before the response, Section 4.3.1, rule 3). | AL | US-05 AC1; HLR-15 | T |
 | REQ-13 | The tuner shall receive RTP datagrams on the tuned UDP port and accept only datagrams with `V = 2`, `PT = 33`, the tuned SSRC and a payload of 1–7 whole TS packets; it shall count dropped datagrams and sequence-number gaps, pass the TS packets to the demux, report `Locked` at the first accepted datagram after tuning, `Unlocked` after 3 s without accepted datagrams, and `Locked` again when they return. | HAL | IF-EXT-05; HLR-13; HLR-25 | T |
 | REQ-14 | Before starting a new session, the AL shall close all demux filters of the previous session and re-tune the tuner with the new SSRC, so that no data of an older session can reach the AL (IF-INT-04, rule 4). | AL | HLR-10; US-18 | T |
 | REQ-15 | The demux shall check the sync byte `0x47` of every TS packet and discard packets without it; it shall check continuity counters per PID and count discontinuities without stopping. | HAL | HLR-12; HLR-25 | T |
 | REQ-16 | The AL shall open a section filter on PID 0 (`table_id 0x00`) through `IDemux` and parse the PAT: verify `table_id`, section length and CRC-32, take the first program with `program_number ≠ 0` and its PMT PID. Sections with an invalid CRC shall be discarded. | AL | HLR-12 | T |
-| REQ-17 | The AL shall open a section filter on the PMT PID (`table_id 0x02`) and parse the PMT: verify `table_id`, section length and CRC-32, read the PCR PID and select the first elementary stream with `stream_type 0x1B` as video and the first with `stream_type 0x0F` as audio. If no video stream is found, the session shall go to state `error` with `INVALID_STREAM`. | AL | HLR-12 | T |
-| REQ-18 | When PAT and PMT have been parsed, the AL shall send `stream_info` once per session and log the program number, PMT PID, PCR PID, video PID and audio PID. | AL | HLR-12; US-22 AC3 | T |
-| REQ-19 | After PMT parsing, the AL shall open TS filters only for PID 0, the PMT PID, the video PID and the audio PID (for the output stream), in addition to the section filters of REQ-16 and REQ-17; the demux shall deliver to each filter only the packets of its PID, one TS packet per callback. | AL, HAL | HLR-12; HLR-25 | T |
+| REQ-17 | The AL shall open a section filter on the PMT PID (`table_id 0x02`) and parse the PMT: verify `table_id`, section length and CRC-32, read the PCR PID and select the first elementary stream with `stream_type 0x1B` as video and the first with `stream_type 0x0F` as audio. If no video stream is found, the session shall go to state `error` with `INVALID_STREAM`; a stream without audio is played as video only. | AL | HLR-12 | T |
+| REQ-18 | When PAT and PMT have been parsed, the AL shall send `stream_info` once per session (not again when the session is restarted after `set_key`, REQ-49) and log the program number, PMT PID, PCR PID, video PID and audio PID at every PMT parsing. | AL | HLR-12; US-22 AC3 | T |
+| REQ-19 | After PMT parsing, the AL shall open TS filters only for PID 0, the PMT PID, the video PID and the audio PID if present (for the output stream), in addition to the section filters of REQ-16 and REQ-17; the demux shall deliver to each filter only the packets of its PID, one TS packet per callback. | AL, HAL | HLR-12; HLR-25 | T |
 | REQ-20 | If the tuner does not report `Locked` within 5 s after `waiting_stream` was entered, the AL shall set state `no_signal` (`reason: "no_data_at_start"`); if the tuner reports `Unlocked` while `playing`, it shall set `no_signal` (`reason: "data_lost"`); when the tuner reports `Locked` again it shall return to the previous state. The APP shall show "No signal" while the state is `no_signal`. | AL, APP | US-05 AC2; US-19 AC1 | T |
 | REQ-21 | If the head-end is not reachable or answers `POST /start` with an error, the AL shall set state `error` with the corresponding error code (Section 3.10); the APP shall show the message of Section 3.10 for that code. | AL, APP | HLR-09 | T |
 
@@ -770,7 +770,7 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
 | REQ-22 | The AL shall build the output stream of the current session from the filtered packets (REQ-19) in the received order, with `transport_scrambling_control = '00'` and decrypted payloads, and package it as an HLS live stream as defined in IF-INT-02, through `IHlsStore`. | AL | HLR-13; D-13 | T |
-| REQ-23 | The AL shall cut segments as defined in IF-INT-02: every segment starts with one PAT, one PMT and a video PES that starts a key frame; a segment is closed at the first such key-frame start after at least 1 s of content (by PCR). A segment file shall be complete before it is listed in the playlist; the playlist shall list the last 6 segments; a segment file shall be removed when it is 3 positions older than the first listed segment (so that a player still loading it is served), so that at most 10 segment files exist. | AL | IF-INT-02; HLR-17 | T |
+| REQ-23 | The AL shall cut segments as defined in IF-INT-02: every segment starts with one PAT, one PMT and a video PES that starts a key frame; a segment is closed at the first such key-frame start after at least 1 s of content (by PCR). A segment file shall be complete before it is listed in the playlist; the playlist shall list the last 6 segments; before a new segment is written, the segment that will then be 3 positions older than the first listed segment shall be removed (the 2 most recently unlisted segments are kept, so that a player still loading one of them is served), so that at most 8 segment files exist at any time, including the one being written. | AL | IF-INT-02; HLR-17 | T |
 | REQ-24 | At the loop boundary of the content (D-08) — the PCR of the PCR PID decreases, or increases by more than 1 s between two consecutive PCRs — the AL shall close the current segment and mark the next segment in the playlist with `#EXT-X-DISCONTINUITY`, keeping `#EXT-X-DISCONTINUITY-SEQUENCE` correct when marked segments leave the playlist. Timestamps are not rewritten. | AL | D-08; D-13; NFR-06 | T |
 | REQ-25 | When the APP receives the **first** `session_state` with `state: "playing"` of its current session, it shall destroy the previous hls.js player and create a new one on `/hls/<n>/index.m3u8`, attached to the `<video>` element, starting with the first segment of the playlist (not at the live edge), so that playback begins at the requested start point. When the same session later returns to `playing` from `no_signal`, the APP shall keep the existing player. | APP | D-13; D-14; IF-INT-02 | T |
 | REQ-26 | The APP shall ignore every event whose `session` is not the session number returned by its last `play`. | APP | HLR-10; US-18 | T |
@@ -779,7 +779,7 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-27 | After every service change and after every new start point on the same service (rewind, return to live), the APP shall show the info dialog with: service number and name; title and start–end time (local `HH:MM`) of the EPG event that contains the playback position; `LIVE`, or `ARCHIVE` with the playback time (`HH:MM:SS`); protection status `Clear`, `Protected – key OK` or `Protected – key required`. | APP | US-06 AC1, AC2 | T |
+| REQ-27 | After every service change and after every new start point on the same service (rewind, return to live), the APP shall show the info dialog with: service number and name; title and start–end time (local `HH:MM`) of the EPG event that contains the playback position; `LIVE`, or `ARCHIVE` with the playback time (`HH:MM:SS`); protection status `Clear`, `Protected – key OK` or `Protected – key required` as soon as it is known (no protection line while protection is undecided or a key is being checked, Section 4.4.2). | APP | US-06 AC1, AC2 | T |
 | REQ-28 | The info dialog shall update its content when `stream_info` or `session_state` of the current session arrives, shall disappear 5 s after it was shown, and shall be shown again with `I`; `ESC` hides it. | APP | US-06 AC3 | T |
 
 #### 2.3.6 Volume and mute
@@ -804,11 +804,11 @@ All requirements in this section are **mandatory**. Each requirement names the l
 
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
-| REQ-37 | `ENTER` on an event marked "available" (including the event currently running) shall send `play` with `start` = the event's `start` and close the EPG. | APP | US-11 AC1, AC3 | T |
+| REQ-37 | `ENTER` on an event marked "available" (including the event currently running) shall send `play` with `start` = the event's `start` and close the EPG. If that start has left the archive window since the EPG was loaded, the AL clamps it (REQ-41) and the program plays from the oldest moment in the archive. | APP | US-11 AC1, AC3 | T |
 | REQ-38 | `ENTER` on an event marked "not available" shall show "Content not available in archive" for 3 s and keep the EPG open and the current playback unchanged; `ENTER` on a future event shall have no effect. | APP | US-11 AC2 | T |
 | REQ-39 | `←` in full-screen playback shall set the target to the playback position minus 30 s (from LIVE: current time minus 30 s); `→` in ARCHIVE mode shall set it to the playback position plus 30 s; `→` in LIVE mode has no effect unless a target set by `←` is pending, in which case it adds 30 s to that target. Repeated presses accumulate on the target; the APP shall send one `play` with the final target when no `←`/`→` has been pressed for 500 ms, and `"live"` if the final target is not earlier than the current time. | APP | US-12 AC1, AC2, AC4; D-02, D-07 | T |
 | REQ-40 | `B` in ARCHIVE mode shall send `play` with `start: "live"` for the current service; in LIVE mode it has no effect. | APP | US-13 | T |
-| REQ-41 | On `play` with a time `T`, the AL shall use `max(T, now − 7200 + 5)` as start point and shall play `"live"` if `T ≥ now`; the effective start point shall be reported in `session_state.start`. | AL | US-12 AC2, AC3 | T |
+| REQ-41 | On `play` with a time `T`, the AL shall use `max(T, now − 7200 + 5)` as start point (5 s after the window start, so that the request is still inside the window when it reaches the head-end) and shall play `"live"` if `T ≥ now`; the effective start point shall be reported in `session_state.start`. | AL | US-12 AC2, AC3 | T |
 | REQ-42 | The head-end shall start the content at the position that corresponds to the requested time `T` (position = `T mod D`, `D` = file duration), beginning at the TS packet with the largest PCR not later than that position, so that the presented content corresponds to `T` within ±1 s. | SRV | US-21 AC1; D-08 | T |
 | REQ-43 | In ARCHIVE mode the APP shall show the playback time (`HH:MM:SS`) and the distance from live (`−MM:SS`), updated every second; in LIVE mode it shall show `LIVE`. | APP | US-12 AC1; US-13 | T |
 
@@ -822,8 +822,8 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | REQ-47 | The key dialog shall accept only `0–9` and `A–F` (letters case-insensitive), at most 32 characters, display each typed character masked (`•`) with a counter `n/32`, delete with `BACKSPACE`, cancel with `ESC`, and accept `ENTER` only when 32 characters have been typed; on `ENTER` the APP sends `set_key`. While the dialog is open, no playback shortcut is active. | APP | US-14 AC3 | T |
 | REQ-48 | When the key dialog is cancelled while the state is `key_required`, the APP shall show "Protected service – press K to enter the key" until the state changes; `K` in full-screen playback shall open the key dialog for the current service in every session state. | APP | US-14 AC2, AC5 | T |
 | REQ-49 | On `set_key`, the AL shall validate the format and store the key for the service in memory only. Whenever a session of a service with a stored key reaches PMT parsing, the AL shall set that key on the descrambler for the video and audio PIDs (`IDemux::set_key`) before starting the TS filters. If the current session of that service is in `key_required`, or has already set the previous key on the descrambler and not yet accepted it (Section 4.3, T-33), the AL shall restart it from the kept start point with the same `start` (D-14), entering `validating_key` once the stream is protected. | AL | US-14 AC4; US-16 AC3; D-14 | T |
-| REQ-50 | The descrambler shall decrypt every packet of a PID with a key set and `transport_scrambling_control = '10'` as defined in D-04 (payload after the header and adaptation field; the largest multiple of 16 bytes decrypted with AES-128-CBC, IV = 16 zero bytes; the remaining bytes unchanged), set its scrambling bits to `'00'` and deliver it with `scrambled = true`. Packets of PIDs without a key are delivered unchanged with `scrambled = true`. | HAL | D-04; HLR-13; HLR-25 | T |
-| REQ-51 | In `validating_key`, the AL shall check the first 3 packets of the video TS filter with `payload_unit_start_indicator = 1` and `scrambled = true` (packets whose payload was too short to be encrypted are skipped, Section 4.7.2): the decrypted payload must begin with `00 00 01`. If all 3 pass, the key is accepted and the state becomes `playing` when the first segment is listed (Section 4.3, T-16, T-18); if any fails, the key is rejected. The decision shall be made within 3 s after the tuner reported `Locked`. | AL | US-16 AC1; D-11 | T |
+| REQ-50 | The descrambler shall decrypt every packet of a PID with a key set and `transport_scrambling_control = '10'` as defined in D-04 (payload after the header and adaptation field; the largest multiple of 16 bytes decrypted with AES-128-CBC, IV = 16 zero bytes; the remaining bytes unchanged), set its scrambling bits to `'00'` and deliver it with `scrambled = true`. A packet with `transport_scrambling_control = '10'` of a PID without a key is delivered unchanged (bits `'10'`) with `scrambled = true`; a packet with `'00'` is delivered unchanged with `scrambled = false`. | HAL | D-04; HLR-13; HLR-25 | T |
+| REQ-51 | In `validating_key`, the AL shall check the first 3 packets of the video TS filter with `payload_unit_start_indicator = 1` and `scrambled = true` (packets whose payload was too short to be encrypted are skipped, Section 4.7.3): the decrypted payload must begin with `00 00 01`. If all 3 pass, the key is accepted and the state becomes `playing` when the first segment is listed (Section 4.3, T-16, T-18); if any fails, the key is rejected. The decision shall be made within 3 s after the tuner reported `Locked`. | AL | US-16 AC1; D-11 | T |
 | REQ-52 | During `validating_key`, the AL shall hold the decrypted output in memory and write the first HLS segment only after the key is accepted, so that the first segment begins at the requested start point. | AL | D-14; US-16 AC3 | T |
 | REQ-53 | On key rejection, the AL shall discard the key of the service, clear it from the descrambler (`IDemux::clear_keys`), discard the held output, stop the head-end session, keep the start point and set `key_required` with `reason: "key_rejected"`. | AL | US-16 AC2 | T |
 | REQ-54 | Keys shall be stored per `service_id`: a key stored for one service shall never be used for another. An accepted key shall be reused for later sessions of the same service in the same run of the middleware, without opening the key dialog. | AL | US-15 AC3; US-16 AC4 | T |
@@ -834,7 +834,7 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
 | REQ-56 | On every `play`, the AL shall end the current session before starting the new one: cancel its pending HTTP requests and timers, send `POST /stop` for its head-end session, close its demux filters and clear the descrambler keys (`IDemux::close_filter`, `IDemux::clear_keys`), discard its held data, remove its HLS directory (`IHlsStore::close_session`), and send `session_state` with `state: "stopped"` for it. After that, no other event of the old session shall be sent. | AL | HLR-10; US-18 | T |
-| REQ-57 | If the control WebSocket is closed, the APP shall reconnect every 2 s; after reconnecting it shall request `get_status` and `get_services` and restore its state from the answers. The AL session shall continue independently of the UI connection. | APP, AL | HLR-09 | T |
+| REQ-57 | If the control WebSocket is closed, the APP shall reconnect every 2 s; after reconnecting it shall request `get_status` and `get_services` and restore its state from the answers; a session that was already playing is requested again from its current playback position (Section 4.4.4). The AL session shall continue independently of the UI connection. | APP, AL | HLR-09 | T |
 | REQ-58 | Invalid input on any interface (malformed JSON, unknown commands, invalid TS packets, invalid PSI sections, invalid RTP datagrams) shall be rejected as defined in Section 3 and logged, and shall never terminate a component. | AL, PAL, SRV | HLR-09 | T |
 | REQ-59 | The AL shall log with a timestamp: every `play` (service, start), every head-end session (session id, SSRC, start time), PAT/PMT results, protection decision, key accepted / rejected, every state change and every error. | AL | US-22 AC3; HLR-23 | I |
 
@@ -860,8 +860,8 @@ All requirements in this section are **mandatory**. Each requirement names the l
 | ID | Requirement | Layer | Source | Verif. |
 |---|---|---|---|---|
 | REQ-67 | While a session has a head-end session, the AL shall send `POST /keepalive` for it every 5 s (IF-EXT-04). | AL | US-21 AC4; D-06 | T |
-| REQ-68 | The head-end shall stop a session that has received neither its start request nor a keepalive for 15 s, and shall log the reason. | SRV | US-21 AC4; D-06 | T |
-| REQ-69 | If a keepalive is answered with `SESSION_NOT_FOUND`, or the head-end does not answer keepalives for 15 s, the AL shall close the filters of the session, untune the tuner and set state `error` with `HEADEND_UNREACHABLE`; the APP shows "No signal". A new `play` shall start a new head-end session without restarting the receiver. | AL, APP | US-19 AC3; NFR-07 | T |
+| REQ-68 | The head-end shall stop a session that has received neither its start request nor a keepalive for 15 s, at the latest 16 s after the last of them, and shall log the reason. | SRV | US-21 AC4; D-06 | T |
+| REQ-69 | If a keepalive is answered with `SESSION_NOT_FOUND`, or three consecutive keepalives fail (no answer or another error; 15 s at the interval of REQ-67), the AL shall close the filters of the session, untune the tuner and set state `error` with `HEADEND_UNREACHABLE`; the APP shows "No signal". A new `play` shall start a new head-end session without restarting the receiver. | AL, APP | US-19 AC3; NFR-07 | T |
 | REQ-70 | When the middleware process is stopped in an orderly way, the AL shall send `POST /stop` for its current head-end session before terminating. | AL | US-21 AC4; HLR-23 | T |
 
 #### 2.3.14 Traceability: high-level requirements → detailed requirements
@@ -896,11 +896,11 @@ Measured values refer to the demo laptop (D-12) with all components running.
 |---|---|---|---|
 | NFR-01 | Performance — zap time | For a clear service, the time from sending `play` to the `session_state` `playing` event shall be at most 3 s, and the first picture shall be visible at most 6 s after the key press, in at least 19 of 20 consecutive zaps. | T |
 | NFR-02 | Performance — protected start | For a protected service with a stored correct key, the time from `play` to `playing` shall be at most 4 s, and the first picture shall be visible at most 7 s after the key press. | T |
-| NFR-03 | Performance — incorrect key | An incorrect key shall be reported (`key_required`, `key_rejected`) at most 3 s after the first RTP data of the session. | T |
+| NFR-03 | Performance — incorrect key | An incorrect key shall be reported (`key_required`, `key_rejected`) at most 3 s after the first RTP data that the receiver accepts after the key was entered (the first `Locked` of the restarted attempt, REQ-51). | T |
 | NFR-04 | Accuracy — rewind position | The burned-in time code of the first presented picture shall differ from the requested position (`T mod 600`) by at most 1 s. | T |
 | NFR-05 | Responsiveness | Every key press shall produce a visible reaction of the OSD (indicator, dialog, list, number) within 200 ms. | T |
-| NFR-06 | Stability | The system shall play live for 30 minutes (at least 3 loop boundaries of the content) without a component terminating, without an interruption of the picture longer than 1 s at a loop boundary, with a growth of the middleware's resident memory of at most 20 MB, and with at most 10 segment files in the HLS directory at any time. | T |
-| NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. When the middleware process is stopped, the head-end shall stop sending its stream within 20 s. | T |
+| NFR-06 | Stability | The system shall play live for 30 minutes (at least 3 loop boundaries of the content) without a component terminating, without an interruption of the picture longer than 1 s at a loop boundary, with a growth of the middleware's resident memory of at most 20 MB, and with at most 8 segment files in the HLS directory at any time (REQ-23). | T |
+| NFR-07 | Robustness | No component shall terminate when: malformed JSON or random bytes are sent to its interfaces; random datagrams are sent to the RTP port; the OTT MW server or the head-end is stopped and restarted during playback. After the restart, playback of a newly selected service shall work without restarting the receiver. When the middleware process is stopped, the head-end shall stop sending its stream within 3 s for an orderly stop (`POST /stop`, REQ-70, Section 4.2.5) and at most 16 s after the stop when the process is killed (REQ-68). | T |
 | NFR-08 | Security of keys | No component of the system shall write a key to a log file or any other file, or send it in any network traffic other than the local control WebSocket (IF-INT-01). The test keys appear only in the test data documentation (Section 5.2.2, NFR-17) and in the test code and scripts that use them. Verified by inspection of the code, by searching the log files for the test keys, and by searching a loopback packet capture of a full demo run for the key bytes outside IF-INT-01. | I, A |
 | NFR-09 | Portability | The AL library `dtvcore` shall build and pass its unit tests without OpenSSL, Mongoose, socket or HAL headers, using only the C++17 standard library, nlohmann/json and the IF-INT-04 headers (DTV SDK and platform interfaces). | I, T |
 | NFR-10 | Testability | Unit tests shall exist at least for AL-PSI, AL-DSC, AL-OUT and AL-SES (with a fake DTV SDK), for HAL-TUN, HAL-DMX and HAL-DSC, for each PAL module, and for SRV-PKG (encryption round trip) and SRV-ARC (time → position). Native tests shall run with one `ctest` command, server tests with one `python3 -m unittest` command, Web application tests with one documented command. | I, T |
@@ -1028,7 +1028,7 @@ Errors: `400 INVALID_RANGE` (missing, non-integer or too large range), `404 SERV
 
 ### 3.3 IF-EXT-04 — Stream control API
 
-Provider: SRV-HEC (WP-PAL). Consumer: AL-HEC through PAL-HTTP (WP-AL). Base URL: the `stream_control_url` from the service info (default `http://127.0.0.1:8081/api/v1/stream`). Requests and responses are JSON.
+Provider: SRV-HEC (WP-PAL). Consumer: AL-HEC through PAL-HTTP (WP-AL). Base URL: the `stream_control_url` from the service info (default `http://127.0.0.1:8081/api/v1/stream`). Requests and responses are JSON. Error responses have the status and code given in the tables below and, as in Section 3.2, the body `{"error": {"code": "<ERROR_CODE>", "message": "<text for logs>"}}`.
 
 #### 3.3.1 `POST /start` — start a stream session
 
@@ -1084,7 +1084,8 @@ Errors: `404 SESSION_NOT_FOUND` (also for an already stopped session; the consum
 Request: `{ "session_id": "hs-000017" }` → response `200`: `{ "expires_in_s": 15 }`.
 
 - The receiver sends a keepalive for its current session every 5 s while the session is running (REQ-67).
-- A session that has received neither its start nor a keepalive for 15 s is stopped by the head-end (REQ-68).
+- A session that has received neither its start nor a keepalive for 15 s is stopped by the head-end, at the latest 16 s after the last of them (checked every second, REQ-68).
+- The receiver treats three consecutive failed keepalives (15 s) as the loss of the head-end (REQ-69).
 - Errors: `404 SESSION_NOT_FOUND` — the session was stopped or expired, or the head-end was restarted; the receiver treats the stream as lost (REQ-69).
 
 ### 3.4 IF-EXT-05 — RTP media stream
@@ -1163,13 +1164,13 @@ Rules:
 
 Behavior that the UI may rely on:
 
-- **`play`** stops the current session (if any), creates a new session with a number higher than every previous one and returns it immediately. If `start` is a time `T`: `T` before the archive window is moved to the window start; `T ≥ now` is played as `"live"` (US-12 AC2, AC3). The effective start point is reported in the `session_state` events.
-- **`set_key`** stores the key for `service_id` for the running session of the middleware process (D-03). If the current session is of that service and waits for a key (`key_required`), or is still validating the previous key, it is restarted from the kept start point (D-14). A correct format does not mean a correct key: correctness is reported by `session_state` (`playing` or `key_required` with `reason: "key_rejected"`).
+- **`play`** stops the current session (if any), creates a new session with a number higher than every previous one and returns it immediately. If `start` is a time `T`: `T` earlier than 5 s after the window start is moved to `now − 7195` (REQ-41); `T ≥ now` is played as `"live"` (US-12 AC2, AC3). The effective start point is reported in the `session_state` events.
+- **`set_key`** stores the key for `service_id` for the running session of the middleware process (D-03). If the current session is of that service and waits for a key (`key_required`), or has already parsed its PMT and not yet accepted a key (the previous key, or no key, is already applied to the descrambler), it is restarted from the kept start point (D-14), with the same session number. A correct format does not mean a correct key: correctness is reported by `session_state` (`playing` or `key_required` with `reason: "key_rejected"`).
 - **Session numbers** let the UI ignore late events: the UI only reacts to events whose `session` equals the number returned by its last `play` (latest request wins).
 
 #### 3.6.3 Events
 
-**`session_state`** — sent on every state change of the current session.
+**`session_state`** — sent on every state change of the current session. When stream data arrived before the head-end's `/start` response, the state changes it causes are applied together at that response, and only the resulting state is sent (Section 4.3.1, rule 3).
 
 ```json
 {
@@ -1182,6 +1183,7 @@ Behavior that the UI may rely on:
     "reason": null,
     "start": 1794999600,
     "start_time": 1794999600,
+    "playing_since": 1795000002,
     "protected": true,
     "error": null
   }
@@ -1194,8 +1196,9 @@ Behavior that the UI may rely on:
 | `state` | One of the states below. |
 | `reason` | Additional reason for `key_required` and `no_signal`, otherwise `null`. |
 | `start` | Requested start point after clamping: `"live"` or `T`. |
-| `start_time` | UNIX time of the first content of the stream (from IF-EXT-04), `null` until known. The UI computes the playback position as `start_time + (now − time at which the session first entered playing)`; the head-end keeps streaming in real time during `no_signal`, so the formula stays valid after a return from `no_signal`. |
-| `protected` | `true` when scrambled A/V packets were detected, `null` until known. |
+| `start_time` | UNIX time of the first content of the stream (from IF-EXT-04), `null` until known. |
+| `playing_since` | UNIX time at which the session first entered `playing` (the first segment was listed), `null` before. The UI computes the playback position as `start_time + (now − playing_since)`: the player starts with the first segment, which begins at `start_time`, and the head-end keeps the content timeline of D-08 in real time, also during `no_signal` (Section 4.7.5), so the formula stays valid after a return from `no_signal` and after a reconnect of the UI. |
+| `protected` | `true` when scrambled A/V packets were detected, `false` for a clear stream, `null` until decided (REQ-44; again `null` after a restart by `set_key`). |
 | `error` | Error object for state `error`, otherwise `null`. |
 
 | `state` | Meaning | HLS stream on IF-INT-02 |
@@ -1210,7 +1213,7 @@ Behavior that the UI may rely on:
 | `stopped` | Session ended by `stop` or replaced by a newer `play`. | no |
 | `error` | Session failed (e.g. `HEADEND_UNREACHABLE`, `OUT_OF_ARCHIVE`); see `error`. | no |
 
-**`stream_info`** — sent once per session when PAT and PMT have been parsed (evidence of HLR-12; data for the info dialog).
+**`stream_info`** — sent once per session, when PAT and PMT have been parsed for the first time (evidence of HLR-12; data for the info dialog); not sent again after a restart by `set_key` (REQ-18). `audio` is `null` for a stream without audio. Protection is not part of `stream_info`, because it is decided later, from the first video packet (REQ-44); it is reported by `session_state.protected`.
 
 ```json
 {
@@ -1223,8 +1226,7 @@ Behavior that the UI may rely on:
     "pmt_pid": 4096,
     "pcr_pid": 256,
     "video": { "pid": 256, "stream_type": 27, "codec": "H.264" },
-    "audio": { "pid": 257, "stream_type": 15, "codec": "AAC" },
-    "scrambled": true
+    "audio": { "pid": 257, "stream_type": 15, "codec": "AAC" }
   }
 }
 ```
@@ -1249,7 +1251,7 @@ Provider: AL-OUT (WP-AL), which writes the files through `IHlsStore` (PAL-FS); P
 | Example | `#EXTM3U` / `#EXT-X-VERSION:3` / `#EXT-X-TARGETDURATION:2` / `#EXT-X-MEDIA-SEQUENCE:41` / `#EXTINF:1.000,` / `seg-41.ts` / `#EXTINF:1.000,` / `seg-42.ts` / `#EXT-X-DISCONTINUITY` / `#EXTINF:1.000,` / `seg-43.ts` (one line each). |
 | When to load | The playlist of session `n` exists from the moment `session_state` reports `state: "playing"` for session `n` (the first segment is already listed). The UI creates a new hls.js player at the **first** `playing` of session `n` and destroys the previous one; when session `n` returns to `playing` from `no_signal`, the existing player is kept (REQ-25). |
 | Start position | The player starts with the **first** segment listed in the playlist, not at the live edge (hls.js configuration `startPosition: 0`), so that playback begins at the requested start point (D-14, NFR-04). |
-| End | When session `n` leaves `playing` for `stopped`, `key_required` or `error`, or a newer session starts, the AL removes the directory of session `n`; requests for it then return `404`. |
+| End | The directory of session `n` exists from the start of a stream attempt (step S3, Section 4.2.4) until the attempt is released: when the session goes to `stopped`, `key_required` or `error`, or a newer session starts (RELEASE, Section 4.3.1). Requests for it then return `404`. A restart of session `n` after `set_key` (same number `n`) creates the directory again, with sequence numbers from 0; no player of session `n` exists at that moment, because `key_required` can only be reached before the first `playing`. |
 | Volume | Not part of the stream: volume and mute are set on the `<video>` element by the UI (D-13). |
 
 ### 3.8 IF-INT-03 — Web application files
@@ -1524,7 +1526,7 @@ At run time the system consists of four processes on the demo laptop (D-12), plu
 | Offline tool | `content/generate.sh` | Shell + FFmpeg | SRV-GEN | — | — |
 | Offline tool | `server/package.py` | Python 3.12 | SRV-PKG | — | — |
 
-P3 and P4 read `content/services.json` (IF-INT-05); P3 additionally reads the encrypted and clear content files listed there. The start order of `scripts/start.sh` is P4, P3, P2, P1 (NFR-12): every process only connects to processes started before it, except that P2 tolerates P4 not yet being reachable (REQ-01).
+P3 and P4 read `content/services.json` (IF-INT-05); P3 additionally reads the encrypted and clear content files listed there. The start order of `scripts/start.sh` is P4, P3, P2, P1 (NFR-12): every process only connects to processes started before it, except that P2 tolerates P4 not yet being reachable (REQ-01). All processes are started with the repository root as working directory; relative paths in the configuration files (`webui_dir`, `log_file`, `services_file`, `content_dir`, `log_dir`) refer to it. P2 is started as `dtv-middleware --config <file>` (Section 4.2.5), P3 and P4 as `python3 server/headend.py --config <file>` and `python3 server/mw_server.py --config <file>` (default `server/config.json`, Section 4.7.1).
 
 #### 4.1.2 Architecture block diagram
 
@@ -1668,6 +1670,7 @@ flowchart TB
 
 Notes on the diagram:
 
+- **OS and common libraries** are drawn inside the PAL, as in Lecture 5. The software HAL blocks also run on them (`TUN → OS`, `DSCR → SSL`), like hardware drivers on the kernel; these edges are uses of a reused base, not calls from the HAL into a module of an upper layer (rule R1, Section 4.1.4).
 - **PAL-CLK and PAL-LOG** are used by every AL module; their edges are left out for readability. **nlohmann/json** is used by AL-API, AL-SVC and AL-HEC (portability rule, Section 2.2.3).
 - **SRV-ARC is marked simulated** because the looping content file on the wall-clock timeline (D-08) stands in for a real live channel and its recorded archive; the other operator-side modules are built as real (simplified) operator software.
 - The **descrambler** sits inside the demux path: the demux passes packets of PIDs that have a key to the descrambler and continues with the decrypted packet (filter delivery, REQ-19, REQ-50). The AL never calls the HAL directly (HLR-25).
@@ -1713,7 +1716,7 @@ Requirements that are not tied to one module are realized by the whole system: R
 
 | Rule | Meaning | Checked by |
 |---|---|---|
-| R1 — calls go down, notifications go up | A module calls only modules of its own layer or of the layer directly below; a lower layer reaches an upper one only through callbacks registered by the upper one (Observer, Section 2.2.6). | Inspection of includes / imports |
+| R1 — calls go down, notifications go up | A module of the team calls only modules of its own layer or of the layer directly below; a lower layer reaches an upper one only through callbacks registered by the upper one (Observer, Section 2.2.6). The OS and the common libraries of Section 2.2.3 (system calls, sockets, C++17 standard library, OpenSSL, Mongoose, nlohmann/json) are a reused base outside this hierarchy: the AL may use the C++17 standard library and nlohmann/json (R3), the PAL modules use all of them, and the software HAL blocks run on the socket API (HAL-TUN) and OpenSSL libcrypto (HAL-DSC), as hardware drivers run on the kernel. No HAL block calls a PAL module of the team. | Inspection of includes / imports |
 | R2 — application only through IF-INT-01/02/03 | The Web application talks to the middleware only through the control WebSocket and HTTP GET of HLS and Web files. | Inspection of `webui/` |
 | R3 — AL only through IF-INT-04 | `dtvcore` includes only `middleware/include/pal/platform.hpp`, the C++17 standard library and nlohmann/json (portability rule, NFR-09). | CMake target of `dtvcore`; build of the AL unit tests with the fake DTV SDK |
 | R4 — HAL only through the DTV SDK | Only PAL-SDK calls the HAL. Other PAL modules do not use the HAL. | Inspection of `middleware/pal/` |
@@ -1782,7 +1785,7 @@ All structures live on the AL worker and are owned by the module named in the ta
 | `ServiceInfo` cache | AL-SVC | Map `service_id` → (`stream_control_url`, `archive_window_s`), filled at the first successful `GET /services/{id}` (REQ-12). |
 | `StartPoint` | AL-SES | Either `live` or an archive time `T` (after clamping, REQ-41). The **kept start point** of D-14 is the `StartPoint` of the current session. |
 | `StreamDescription` | AL-PSI | `program_number`, `pmt_pid`, `pcr_pid`, `video_pid`, `video_stream_type`, `audio_pid`, `audio_stream_type`; `audio_pid` is optional (a stream without audio plays video only). |
-| `Session` | AL-SES | `number` (session number of IF-INT-01); `generation` (current stream attempt); `service_id`; `start` (`StartPoint`); `ssrc`; `headend_session_id` (empty when no head-end session exists); `start_time` (from `/start`, optional); `state`, `reason`, `error` (Section 3.6.3); `protected` (optional); `StreamDescription` (optional); ids of the open filters; ids of pending HTTP requests and running timers; data-path flags `locked`, `protection` (`unknown` / `clear` / `protected`), `key_result` (`pending` / `accepted` / `rejected`), `first_segment_listed` (Section 4.3.1); `locked_ms`; `first_playing_ms`; `last_keepalive_ok_ms`. Exactly one `Session` object exists at a time; it is replaced on every `play`; a restart after `set_key` keeps the object, the number and the start point and resets everything else. |
+| `Session` | AL-SES | `number` (session number of IF-INT-01); `generation` (current stream attempt); `service_id`; `start` (`StartPoint`); `ssrc`; `headend_session_id` (empty when no head-end session exists); `start_time` (from `/start`, optional); `state`, `reason`, `error` (Section 3.6.3); `protected` (optional); `StreamDescription` (optional); ids of the open filters; ids of pending HTTP requests and running timers; data-path flags `locked`, `protection` (`unknown` / `clear` / `protected`), `key_result` (`pending` / `accepted` / `rejected`), `first_segment_listed` (Section 4.3.1); `locked_ms`; `playing_since` (UNIX time of the first `playing`, Section 3.6.3); `keepalive_failures` (consecutive failed keepalives, REQ-69); `stream_info_sent`. Exactly one `Session` object exists at a time; it is replaced on every `play`; a restart after `set_key` keeps the object, the number, the start point and `stream_info_sent` (REQ-18) and resets everything else. |
 | `KeyStore` | AL-DSC | Map `service_id` → 16-byte key. Only `set_key` adds, only key rejection (REQ-53) removes. Key bytes are overwritten with zeros when an entry is removed and when the process stops. Never logged in full (REQ-55). |
 | `KeyValidation` | AL-DSC | Number of video PES starts checked (0 – 3) and the result (`pending`, `accepted`, `rejected`) of the current session (REQ-51). |
 | `HlsState` | AL-OUT | Last PAT packet and last PMT packet seen; bytes of the segment being built; PCR at its start; sequence number of the next segment; list of the listed segments (name, duration, discontinuity flag); `#EXT-X-DISCONTINUITY-SEQUENCE`; last PCR; flag `write_enabled`; complete segments held while `write_enabled` is false. |
@@ -1863,14 +1866,14 @@ All classes receive the IF-INT-04 interfaces they use (`ITuner`, `IDemux`, `IHtt
 | S2 | — | AL-SVC `get_service_info` (from the cache, or `GET /services/{id}`). |
 | S3 | Service info known | `untune()`, `tuned_generation = g`, `tune(udp_port, ssrc)`. AL-OUT `open(n)` (`IHlsStore::open_session`), `write_enabled = false`. AL-PSI opens and starts the PAT section filter (PID 0, `table_id 0x00`). All of this happens **before** the start request, so that the first PAT of the session (Section 3.4) is not missed. |
 | S4 | — | AL-HEC `POST /start` with service, start point, port and SSRC. |
-| S5 | `/start` response `200` | Store `headend_session_id` and `start_time`; start the keepalive timer (5 s, REQ-67) and, unless the tuner is already `Locked`, the no-data timer (5 s, REQ-20). State `waiting_stream`. Data-path steps S6 – S11 may already have happened in `starting`, because the head-end may send the first RTP packets before its response is processed; their state changes take effect here (Section 4.3.1, rule 3). |
+| S5 | `/start` response `200` | Store `headend_session_id` and `start_time`; start the keepalive timer (5 s, REQ-67) and, unless the tuner is already `Locked`, the no-data timer (5 s, REQ-20). State `waiting_stream`. Data-path steps S6 – S12 may already have happened in `starting`, because the head-end may send the first RTP packets before its response is processed; their state changes take effect here (Section 4.3.1, rule 3). |
 | S6 | Tuner `Locked` | Cancel the no-data timer. At the first `Locked` of the attempt: store `locked_ms = monotonic_ms()` and start the **stream deadline** timer of 3 s (REQ-51, NFR-03), which must see a protection decision and, for a protected stream with a key, a key decision. |
 | S7 | PAT parsed (AL-PSI) | AL-PSI opens and starts the PMT section filter (`table_id 0x02`) on the PMT PID. |
-| S8 | PMT parsed (AL-PSI) | Store the `StreamDescription`; send `stream_info` (REQ-18). If AL-DSC has a key for the service: `IDemux::set_key` for the video and audio PIDs (REQ-49). Open and start the TS filters on PID 0, the PMT PID, the video PID and the audio PID (REQ-19). |
+| S8 | PMT parsed (AL-PSI) | Store the `StreamDescription`; send `stream_info` unless `stream_info_sent` (REQ-18). If AL-DSC has a key for the service: `IDemux::set_key` for the video and audio PIDs (REQ-49). Open and start the TS filters on PID 0, the PMT PID, the video PID and the audio PID if present (REQ-19). |
 | S9 | First packet of the video TS filter with a payload of at least 16 bytes | AL-DSC decides protection from `scrambled` (REQ-44). **Clear:** `write_enabled = true`. **Protected, no key:** REQ-45 → `key_required` (`no_key`). **Protected, key set:** state `validating_key`; the stream deadline keeps running. |
 | S10 | Video packets with `payload_unit_start_indicator = 1` while `validating_key` | AL-DSC checks the decrypted payload (REQ-51). 3 passes → key accepted, `write_enabled = true` (held segments are written, REQ-52). A failure → REQ-53 → `key_required` (`key_rejected`). |
 | S11 | Every TS filter packet | AL-OUT `feed(packet)` (REQ-22 – REQ-24); while `write_enabled` is false, complete segments are held in memory. |
-| S12 | First segment listed in the playlist (AL-OUT) | `first_playing_ms = monotonic_ms()`; state `playing`. |
+| S12 | First segment listed in the playlist (AL-OUT) | `playing_since = unix_time_s()`; state `playing`. |
 
 **Internal behavior of the other modules:**
 
@@ -1881,7 +1884,7 @@ All classes receive the IF-INT-04 interfaces they use (`ITuner`, `IDemux`, `IHtt
 | AL-HEC | Builds the JSON bodies of Section 3.3 and interprets the responses: `200` → result; `4xx` with an error object → that error code; transport failure, timeout or an invalid body → `HEADEND_UNREACHABLE`. `SESSION_NOT_FOUND` on `/stop` is reported as success (Section 3.3.2). Timeout 2000 ms for all head-end requests. |
 | AL-PSI | Parses only until the first valid PAT and PMT of the session; later sections (repetitions every 100 ms) are ignored. A change of `version_number` during a session is logged as a warning and ignored (the content of D-09 never changes its PSI). |
 | AL-DSC | Converts the 32 hexadecimal characters into 16 bytes. The PES start check takes the payload after the TS header and the adaptation field (`adaptation_field_control` `'11'`: skip `1 + adaptation_field_length` bytes). |
-| AL-OUT | **Segment cut:** a video TS packet with `payload_unit_start_indicator = 1` and `random_access_indicator = 1` in its adaptation field is a key-frame start (set by FFmpeg for every IDR frame; with the closed GOP of 25 frames once per second, Section 2.2.1). The first segment begins at the first key-frame start after `open`; earlier A/V packets are dropped. A segment is closed at the first key-frame start at which `PCR − PCR at segment start ≥ 1 s` (REQ-23); its duration is this PCR difference. **Segment start:** the stored last PAT and last PMT packets are written first, then the key-frame packet. **Loop boundary:** REQ-24 on the PCR of the PCR PID. **Writing:** `write_file(seg-<k>.ts)`, then the playlist text, then `write_file(index.m3u8)`, then `remove_file` of the segment that is now 3 positions older than the first listed one (REQ-23, B7 of Section 4.5). |
+| AL-OUT | **Segment cut:** a video TS packet with `payload_unit_start_indicator = 1` and `random_access_indicator = 1` in its adaptation field is a key-frame start (set by FFmpeg for every IDR frame; with the closed GOP of 25 frames once per second, Section 2.2.1). The first segment begins at the first key-frame start after `open`; earlier A/V packets are dropped. A segment is closed at the first key-frame start at which `PCR − PCR at segment start ≥ 1 s` (REQ-23); its duration is this PCR difference. **Segment start:** the stored last PAT and last PMT packets are written first, then the key-frame packet. **Loop boundary:** REQ-24 on the PCR of the PCR PID. **Writing:** first `remove_file` of the segment that will be 3 positions older than the first listed one once segment `k` is listed (REQ-23, B7 of Section 4.5), then `write_file(seg-<k>.ts)`, then the playlist text and `write_file(index.m3u8)`. Removing before writing keeps the number of segment files at 8 or less also while `seg-<k>.ts` is being written. |
 
 #### 4.2.5 Configuration and process lifecycle (AL-MAIN)
 
@@ -1900,7 +1903,7 @@ All classes receive the IF-INT-04 interfaces they use (`ITuner`, `IDemux`, `IHtt
 | `headend_timeout_ms` | `2000` | AL-HEC |
 | `mw_retry_s` | `5` | AL-SVC (REQ-01) |
 | `keepalive_interval_s` | `5` | AL-SES (REQ-67) |
-| `keepalive_loss_s` | `15` | AL-SES (REQ-69) |
+| `keepalive_loss_s` | `15` | AL-SES (REQ-69: `keepalive_loss_s / keepalive_interval_s` = 3 consecutive failed keepalives) |
 | `no_data_timeout_s` | `5` | AL-SES (REQ-20) |
 | `stream_deadline_s` | `3` | AL-SES (REQ-51, stream deadline of Section 4.3) |
 
@@ -1918,7 +1921,7 @@ The playback session is the main state-dependent operation of the system [GUIDEL
 
 1. **One current session.** Exactly one session is current. `play` always creates a new session; only `set_key` restarts the current one (T-24, T-33).
 2. **Generation check first.** A task whose generation is not the current one is discarded before the table is consulted (Section 4.2.2). Events that the table does not list for a state are ignored and logged at level `Debug`.
-3. **Data path in `starting`.** The head-end may send RTP before AL-SES has processed its `/start` response. Data-path events (`EV-LOCKED`, `EV-PAT`, `EV-PMT`, `EV-VIDEO1`, `EV-KEY-*`, `EV-SEG1`) are therefore processed in `starting` exactly as in `waiting_stream` (filters, parsing, decisions, output), but they only set the flags of the `Session` (`locked`, `protection`, `key_result`, `first_segment_listed`). The state changes they would cause are made when `EV-START-OK` arrives (T-06). If `/start` fails instead, the flags are dropped with the attempt.
+3. **Data path in `starting`.** The head-end may send RTP before AL-SES has processed its `/start` response. `EV-LOCKED`, `EV-PAT`, `EV-PMT` and `EV-PMT-NOVIDEO` are listed for `starting` in the table (T-09, T-11 – T-13). `EV-VIDEO1`, `EV-KEY-OK`, `EV-KEY-BAD` and `EV-SEG1` are also accepted in `starting`: there they execute only the data-path actions of the transition they would take after the response — the PES checks (T-15), setting `write_enabled` (T-16, T-19), output to AL-OUT, and cancelling the stream deadline as soon as the decisions it waits for are made (T-16, T-19; in `starting` also at `EV-VIDEO1` without a key and at `EV-KEY-BAD`, so that a late `/start` response, at most 2000 ms, cannot turn a decided rejection into `INVALID_STREAM`) — and record their result in the flags `protection`, `key_result` and `first_segment_listed` (`locked` is set by T-09). The rest of these transitions — setting `protected`, the change of state, RELEASE and discarding a rejected key (T-14, T-17) — is deferred and applied by T-06 when `EV-START-OK` arrives; only the resulting state is sent as `session_state`. If `/start` fails instead (T-08), the flags are dropped with the attempt; a key that is rejected only in a flag stays stored.
 4. **RELEASE.** Leaving the active part of the machine (to `key_required`, `error` or `stopped`) always executes the procedure RELEASE, in this order: cancel all timers and pending HTTP requests of the attempt; close all its demux filters (`IDemux::close_filter`) and clear the descrambler keys (`IDemux::clear_keys`); `untune()`; AL-OUT `close()` (held data discarded, `IHlsStore::close_session`); if a head-end session exists, `POST /stop` for it (its response is only logged) and forget its id. RELEASE keeps the session number and the start point (D-14).
 5. **Active states** are `starting`, `waiting_stream`, `validating_key`, `playing` and `no_signal`; only they own PAL resources. `idle`, `key_required`, `error` and `stopped` own none (after RELEASE), so no data, timer or keepalive event can reach them except through rule 2.
 
@@ -1936,32 +1939,36 @@ The playback session is the main state-dependent operation of the system [GUIDEL
 | `EV-LOCKED` / `EV-UNLOCKED` | Tuner status (REQ-13) | First accepted RTP data / 3 s without accepted RTP data. |
 | `EV-PAT` | AL-PSI | First valid PAT of the attempt (REQ-16). |
 | `EV-PMT` | AL-PSI | First valid PMT of the attempt; `EV-PMT-NOVIDEO` if it has no `stream_type 0x1B` (REQ-17). |
-| `EV-VIDEO1` | AL-DSC | First packet of the video TS filter with a payload of at least 16 bytes: protection decided as `clear`, `protected-no-key` or `protected-key` (REQ-44). |
+| `EV-VIDEO1` | AL-DSC | First packet of the video TS filter with a payload of at least 16 bytes: protection decided as `clear`, `protected-no-key` or `protected-key` (REQ-44); `protected-key` means that a key was set on the descrambler at T-12 of this attempt. |
 | `EV-KEY-OK` / `EV-KEY-BAD` | AL-DSC | Three PES starts passed / a PES start failed the check (REQ-51). |
 | `EV-SEG1` | AL-OUT | The first segment of the attempt is listed in the playlist. |
 | `EV-OUT-ERR` | AL-OUT | `IHlsStore::open_session` or `write_file` returned `false`. |
 | `EV-T-NODATA` | Timer, 5 s after entering `waiting_stream` without `Locked` | REQ-20, `no_data_at_start`. |
 | `EV-T-DEADLINE` | Timer, 3 s after the first `Locked` of the attempt | Stream deadline (Section 4.2.4, S6). |
 | `EV-T-KA` | Timer, every 5 s after `EV-START-OK` | Time to send a keepalive (REQ-67). |
-| `EV-KA-OK` / `EV-KA-NOTFOUND` / `EV-KA-FAIL` | AL-HEC | Keepalive answered `200` / `SESSION_NOT_FOUND` / no answer or another error. |
+| `EV-KA-OK` / `EV-KA-NOTFOUND` / `EV-KA-FAIL` | AL-HEC | Keepalive answered `200` / `SESSION_NOT_FOUND` / no answer within 2000 ms or another error. |
 | `EV-SHUTDOWN` | AL-MAIN | Orderly stop of the process (Section 4.2.5). |
 
 #### 4.3.3 State diagram
 
-Shown without the rule "`EV-PLAY` in any state → old session `stopped`, new session `starting`" (T-01) and without `EV-STOP` / `EV-SHUTDOWN` from every active state to `stopped` (T-02, T-31), which apply to every state.
+Shown without the rule "`EV-PLAY` in any state → old session `stopped`, new session `starting`" (T-01), without `EV-STOP` from every active state, `key_required` and `error` to `stopped` (T-02) and without `EV-SHUTDOWN` from every active state to `stopped` (T-31). Transitions without a change of state (T-09, T-11, T-12, T-16, T-19, T-25 – T-27, T-32) are not drawn.
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
     idle --> starting : EV-PLAY
-    starting --> starting : FUTURE_TIME, retry as live
-    starting --> waiting_stream : EV-START-OK
-    starting --> error : EV-INFO-ERR, EV-TUNE-FAIL, EV-START-ERR
+    starting --> starting : FUTURE_TIME, retry as live (T-07)
+    starting --> starting : EV-SETKEY for this service after PMT (T-33)
+    starting --> waiting_stream : EV-START-OK (T-06)
+    starting --> validating_key : EV-START-OK, recorded protected with key (T-06)
+    starting --> key_required : EV-START-OK, recorded no key or rejected key (T-06)
+    starting --> playing : EV-START-OK, first segment already listed (T-06)
+    starting --> error : EV-INFO-ERR, EV-TUNE-FAIL, EV-START-ERR, EV-PMT-NOVIDEO, EV-OUT-ERR
     waiting_stream --> no_signal : EV-T-NODATA (no_data_at_start)
     no_signal --> waiting_stream : EV-LOCKED (no_data_at_start)
     waiting_stream --> playing : EV-SEG1 (clear)
     waiting_stream --> key_required : EV-VIDEO1 protected, no key (no_key)
-    waiting_stream --> validating_key : EV-VIDEO1 protected, key stored
+    waiting_stream --> validating_key : EV-VIDEO1 protected, key set
     validating_key --> key_required : EV-KEY-BAD (key_rejected)
     validating_key --> playing : EV-SEG1 after EV-KEY-OK
     key_required --> starting : EV-SETKEY for this service (restart from kept start point)
@@ -1988,23 +1995,23 @@ stateDiagram-v2
 | ID | State | Event [guard] | Actions | Next state | Emit |
 |---|---|---|---|---|---|
 | T-01 | any | `EV-PLAY` | If a session exists in an active state, `key_required` or `error`: RELEASE it and send its `session_state` `stopped` (REQ-56). Clamp the start point (REQ-41). New session: `n + 1`, `g + 1`, random SSRC, flags reset. Respond `{"session": n}`. Request the service info (S2). | `starting` | — |
-| T-02 | active | `EV-STOP` | RELEASE. | `stopped` | — |
+| T-02 | active, `key_required`, `error` | `EV-STOP` | RELEASE (nothing left to release in `key_required` and `error`). | `stopped` | — |
 | T-03 | `starting` | `EV-INFO-OK` | S3: `untune()`, `tuned_generation = g`, `tune()`; AL-OUT `open(n)`; open and start the PAT filter. S4: `POST /start`. | `starting` | — |
 | T-04 | `starting` | `EV-TUNE-FAIL` | RELEASE. | `error` (`RECEIVER_ERROR`) | — |
 | T-05 | `starting` | `EV-INFO-ERR` | RELEASE. | `error` (`MW_UNREACHABLE` / `SERVICE_NOT_FOUND`) | — |
-| T-06 | `starting` | `EV-START-OK` | Store `headend_session_id`, `start_time`; `last_keepalive_ok_ms = now`; start the keepalive timer; if not `locked`, start the no-data timer. Then apply the recorded flags (rule 3) in this order: `protection = protected` without key → as T-14; `protection = protected` with key → as T-15, then `key_result = rejected` → as T-17, or `key_result = accepted` → as T-16; `first_segment_listed` → as T-18. | `waiting_stream`, or the state reached by the recorded flags | — |
+| T-06 | `starting` | `EV-START-OK` | Store `headend_session_id`, `start_time`; `keepalive_failures = 0`; start the keepalive timer; if not `locked`, start the no-data timer. Then apply the deferred part of the recorded flags (rule 3) in this order: `protection = clear` → `protected = false` (the rest of T-19 was already done); `protection = protected` without key → as T-14; `protection = protected` with key → `protected = true`, state `validating_key` (T-15), then `key_result = rejected` → as T-17, or `key_result = accepted` (T-16 already done); `first_segment_listed` → as T-18. Only the resulting state is sent as `session_state`. | `waiting_stream`, or the state reached by the recorded flags | — |
 | T-07 | `starting` | `EV-START-ERR` [`FUTURE_TIME`] | Start point becomes `"live"`; send `POST /start` again (Section 3.10). | `starting` | — |
 | T-08 | `starting` | `EV-START-ERR` [other code] | RELEASE. | `error` (code from the head-end, or `HEADEND_UNREACHABLE` on transport failure) | — |
 | T-09 | `starting`, `waiting_stream` | `EV-LOCKED` [first of the attempt] | S6: cancel the no-data timer; `locked = true`, `locked_ms = now`; start the stream deadline (3 s). | unchanged | — |
 | T-10 | `no_signal` [`no_data_at_start`] | `EV-LOCKED` | As T-09. | `waiting_stream` | — |
 | T-11 | `starting`, `waiting_stream` | `EV-PAT` | S7: open and start the PMT section filter. | unchanged | — |
-| T-12 | `starting`, `waiting_stream` | `EV-PMT` | S8: store the stream description; set the key if stored (REQ-49); open and start the TS filters (REQ-19). | unchanged | `stream_info` |
+| T-12 | `starting`, `waiting_stream` | `EV-PMT` | S8: store the stream description; set the key if stored (REQ-49); open and start the TS filters (REQ-19). | unchanged | `stream_info`, only if not `stream_info_sent` (then `stream_info_sent = true`, REQ-18) |
 | T-13 | `starting`, `waiting_stream` | `EV-PMT-NOVIDEO` | RELEASE. | `error` (`INVALID_STREAM`) | — |
-| T-14 | `waiting_stream` | `EV-VIDEO1` [protected, no key] | `protected = true`; RELEASE (REQ-45: no segment written). | `key_required` (`no_key`) | — |
-| T-15 | `waiting_stream` | `EV-VIDEO1` [protected, key stored] | `protected = true`; AL-DSC starts checking PES starts (S10). | `validating_key` | — |
+| T-14 | `waiting_stream` | `EV-VIDEO1` [protected, no key set at T-12] | `protected = true`; RELEASE (REQ-45: no segment written). | `key_required` (`no_key`) | — |
+| T-15 | `waiting_stream` | `EV-VIDEO1` [protected, key set at T-12] | `protected = true`; AL-DSC starts checking PES starts (S10). | `validating_key` | — |
 | T-16 | `validating_key` | `EV-KEY-OK` | Cancel the stream deadline; `key_result = accepted`; AL-OUT `write_enabled = true` (held segments written, REQ-52). | `validating_key` | — |
 | T-17 | `validating_key` | `EV-KEY-BAD` | AL-DSC discards the key of the service; RELEASE (includes `clear_keys`, REQ-53). | `key_required` (`key_rejected`) | — |
-| T-18 | `waiting_stream` [clear], `validating_key` [`key_result = accepted`] | `EV-SEG1` | `first_playing_ms = now` (S12). | `playing` | — |
+| T-18 | `waiting_stream` [clear], `validating_key` [`key_result = accepted`] | `EV-SEG1` | `playing_since = unix_time_s()` (S12). | `playing` | — |
 | T-19 | `waiting_stream` | `EV-VIDEO1` [clear] | `protected = false`; cancel the stream deadline; AL-OUT `write_enabled = true`. | `waiting_stream` | — |
 | T-20 | `waiting_stream` | `EV-T-NODATA` | — (session continues, keepalives continue). | `no_signal` (`no_data_at_start`) | — |
 | T-21 | `starting`, `waiting_stream`, `validating_key` | `EV-T-DEADLINE` | RELEASE. The stored key is kept. | `error` (`INVALID_STREAM`) | — |
@@ -2013,13 +2020,13 @@ stateDiagram-v2
 | T-24 | `key_required` | `EV-SETKEY` [same `service_id`] | Restart (REQ-49, D-14): same `n`, same start point, `g + 1`, new random SSRC, flags reset; request the service info (S2). | `starting` | — |
 | T-25 | any | `EV-SETKEY` [other service; or same service in `starting` / `waiting_stream` before `EV-PMT`; or same service with `protection = clear`; or state `playing`, `no_signal`, `error`, `stopped`] | None besides the storing by AL-DSC; the key is used at the next PMT of that service (T-12). | unchanged | — |
 | T-26 | `waiting_stream`, `validating_key`, `playing`, `no_signal` | `EV-T-KA` | `POST /keepalive`; restart the keepalive timer. | unchanged | — |
-| T-27 | same as T-26 | `EV-KA-OK` | `last_keepalive_ok_ms = now`. | unchanged | — |
+| T-27 | same as T-26 | `EV-KA-OK` | `keepalive_failures = 0`. | unchanged | — |
 | T-28 | same as T-26 | `EV-KA-NOTFOUND` | Forget the head-end session id (no `/stop`); RELEASE (REQ-69). | `error` (`HEADEND_UNREACHABLE`) | — |
-| T-29 | same as T-26 | `EV-KA-FAIL` [`now − last_keepalive_ok_ms ≥ 15 s`] | RELEASE (REQ-69). Without the guard: nothing; the next keepalive is sent by T-26. | `error` (`HEADEND_UNREACHABLE`) | — |
+| T-29 | same as T-26 | `EV-KA-FAIL` | `keepalive_failures + 1`. At the third consecutive failure (15 s, REQ-69): RELEASE. Below three: nothing more; the next keepalive is sent by T-26. | `error` (`HEADEND_UNREACHABLE`) at the third failure, otherwise unchanged | — |
 | T-30 | `starting`, `waiting_stream`, `validating_key`, `playing` | `EV-OUT-ERR` | RELEASE. | `error` (`RECEIVER_ERROR`) | — |
 | T-31 | active | `EV-SHUTDOWN` | RELEASE; AL-MAIN waits for the `/stop` response or its timeout (Section 4.2.5). | `stopped` | — |
-| T-32 | `waiting_stream`, `validating_key`, `no_signal` [`no_data_at_start`] | `EV-UNLOCKED` | Ignored: the stream deadline or the no-data timer decides (T-20, T-21). | unchanged | — |
-| T-33 | `starting`, `waiting_stream`, `validating_key` | `EV-SETKEY` [same `service_id`, after `EV-PMT` of the attempt, `protection ≠ clear`] | The descrambler already holds the previous key, so the attempt is restarted with the new one (latest request wins): RELEASE (the stored key — now the new one — is kept), then as T-24. Without this restart, a rejection of the previous key (T-17) would discard the newer key. | `starting` | — |
+| T-32 | `starting`, `waiting_stream`, `validating_key`, `no_signal` [`no_data_at_start`] | `EV-UNLOCKED` | Ignored: the stream deadline or the no-data timer decides (T-20, T-21). | unchanged | — |
+| T-33 | `starting`, `waiting_stream`, `validating_key` | `EV-SETKEY` [same `service_id`, after `EV-PMT` of the attempt, `protection ≠ clear`] | The TS filters of the attempt were started at T-12 with the previous key or without a key, and the new key is only applied at a PMT, so the attempt is restarted with the new one (latest request wins): RELEASE (the stored key — now the new one — is kept), then as T-24. Without this restart, a rejection of the previous key (T-17) would discard the newer key, and an attempt without a key would end in `key_required` although a key is stored. | `starting` | — |
 
 #### 4.3.5 Requirement coverage
 
@@ -2058,6 +2065,7 @@ The application is a set of plain ES2020 modules without a build step (NFR-11), 
 | `webui/js/keys.js` | APP-KEY | Maps a `KeyboardEvent` to a remote-control key and passes it to the presenter of the active context (4.4.3) | no |
 | `webui/js/presenters/*.js` | APP-PRS | `playback.js`, `number_entry.js`, `service_list.js`, `epg.js`, `key_dialog.js`, `session.js` (reaction to IF-INT-01 events) | no |
 | `webui/js/views/*.js` | APP-VIEW | `player.js` (`<video>` + hls.js), `info_bar.js`, `zap_banner.js`, `number_entry.js`, `service_list.js`, `epg_grid.js`, `key_dialog.js`, `volume.js`, `status.js` (persistent status message and toasts) | yes |
+| `webui/package.json` | — | Only `{"type": "module"}`, so that Node.js loads the ES2020 modules of `webui/js/` in the unit tests; no dependencies, no scripts, no build step (NFR-11) | — |
 | `webui/tests/*.test.js` | tests | Unit tests of model, key mapping and presenters with a fake middleware client and a fake clock | no |
 
 Rules of the MVP structure:
@@ -2075,8 +2083,8 @@ Rules of the MVP structure:
 | `services` | array of `{service_id, number, name, protected}` sorted by `number`; empty until loaded | `get_services` |
 | `currentServiceId` | string or `null` | every `play` |
 | `lastPlayId` | request id of the last `play` command | session presenter |
-| `session` | `{number, state, reason, start, startTime, protected, error}` of the session of the last `play`, or `null` | `play` response, `session_state` |
-| `firstPlayingAt` | `now()` of the APP at the first `playing` of the current session, or `null` | session presenter |
+| `session` | `{number, serviceId, state, reason, start, startTime, playingSince, protected, error}` of the session of the last `play`, or `null` | `play` response, `session_state`, `get_status` |
+| `playerSession` | session number for which the current hls.js player was created, or `null` when no player exists | session presenter |
 | `streamInfo` | data of the last `stream_info` of the current session, or `null` | `stream_info` |
 | `epg` | `{from, to, serverTime, services}` of the last successful `get_epg`, or `null` | EPG presenter |
 | `volume` | integer 0 – 100, initial 50 | playback presenter |
@@ -2093,8 +2101,8 @@ Rules of the MVP structure:
 **Derived values** (computed, not stored):
 
 - **Mode:** `ARCHIVE` if `session.start` is an integer, otherwise `LIVE`.
-- **Playback position** (REQ-43, Section 3.6.3): `startTime + (now − firstPlayingAt)` in ARCHIVE mode, `now` in LIVE mode; the distance from live is `now − position`.
-- **Protection status** of the info dialog (REQ-27): `Clear` if `session.protected === false`; `Protected – key OK` if `protected === true` and the state is `playing` or `no_signal`; `Protected – key required` if the state is `key_required`; no protection line while `protected` is `null`.
+- **Playback position** (REQ-43, Section 3.6.3): `startTime + (now − playingSince)` in ARCHIVE mode, `now` in LIVE mode, in UNIX seconds; the distance from live is `now − position`. Before the first `playing` (`playingSince === null`) the position is the start point `start` (ARCHIVE) or `now` (LIVE).
+- **Protection status** of the info dialog (REQ-27): `Clear` if `session.protected === false`; `Protected – key OK` if `protected === true` and the state is `playing` or `no_signal`; `Protected – key required` if the state is `key_required`; no protection line in every other case (`protected === null`, or `protected === true` in another state, for example while a key is being checked in `validating_key`).
 - **Persistent status message** (shown until the condition ends, highest priority first): "No signal" while `connected` is `false` (ER-34, Section 4.8); "Server not reachable" while `services` is empty and `mwReachable` is `false` (REQ-04); "No signal" while the state is `no_signal` (REQ-20); the message of Section 3.10 for `session.error.code` while the state is `error`, "No signal" for codes without a message (REQ-21); "Protected service – press K to enter the key" while the state is `key_required` and `keyDialogCancelled` is `true` (REQ-48).
 
 #### 4.4.3 UI contexts
@@ -2158,22 +2166,28 @@ Keys not listed for a context are ignored (REQ-60). The key dialog shows `keyBuf
 | Message | Condition | Reaction |
 |---|---|---|
 | `session_state` | `data.session ≠ session.number` | Ignored (REQ-26). |
-| `session_state` | `playing`, `firstPlayingAt === null` | `firstPlayingAt = now()`; the player view destroys the old hls.js instance and creates a new one on `/hls/<n>/index.m3u8` with `startPosition: 0` (REQ-25); volume and mute are applied to the `<video>` element (REQ-31). The info dialog is updated (REQ-28). |
-| `session_state` | `playing` after `no_signal` | Model updated only; the player is kept (REQ-25). |
-| `session_state` | `key_required` | Open the key dialog (4.4.3, last row); the player view destroys the hls.js instance (the HLS directory is removed by the AL, Section 3.7). |
-| `session_state` | `error`, `stopped` | Destroy the hls.js instance; the status message follows from the model (4.4.2). |
+| `session_state` | `playing`, `playerSession ≠ data.session` (first `playing` of the session) | `playerSession = n`; the player view destroys the old hls.js instance and creates a new one on `/hls/<n>/index.m3u8` with `startPosition: 0` (REQ-25); volume and mute are applied to the `<video>` element (REQ-31). The info dialog is updated (REQ-28). |
+| `session_state` | `playing`, `playerSession = data.session` (return from `no_signal`) | Model updated only; the player is kept (REQ-25). |
+| `session_state` | `key_required` | Open the key dialog (4.4.3, last row); the player view destroys the hls.js instance if one exists, `playerSession = null` (the HLS directory is removed by the AL, Section 3.7). |
+| `session_state` | `error`, `stopped` | Destroy the hls.js instance, `playerSession = null`; the status message follows from the model (4.4.2). |
 | `session_state` | other states | Model updated; the view shows the status message derived in 4.4.2. |
 | `stream_info` | `data.session = session.number` | `streamInfo` stored; info dialog updated (REQ-28). |
 | `mw_status` | — | `mwReachable` stored; if `true` and `services` is empty, send `get_services` (REQ-04). |
 | `get_services` response | `ok` | `services` stored; if no session has been started yet, `play` live for number 1 (REQ-03). |
 | `get_services` response | `MW_UNREACHABLE` | Nothing; the next `mw_status` with `reachable: true` triggers a new request. |
 | `get_epg` response | `ok` / error | `epg` stored / `epg = null` → "No information" for all services (REQ-36). |
-| `play` response | `ok: false`, id = `lastPlayId` | The AL kept its current session (ER-07). Toast "Invalid service number" (3 s) for `SERVICE_NOT_FOUND`, no toast for other codes; then `get_status`, and the model takes the returned session as current, as after a reconnect (below). |
+| `play` response | `ok: false`, id = `lastPlayId` | The AL kept its current session (ER-07). Toast "Invalid service number" (3 s) for `SERVICE_NOT_FOUND`, no toast for other codes; then `get_status`, and the returned session is adopted (below); its player, which still exists, is kept. |
 | `set_key` response | `ok: false` | `INVALID_KEY_FORMAT`: open the key dialog again with the title "Enter the decryption key" (ER-32). `SERVICE_NOT_FOUND`: toast "Invalid service number" (3 s). |
 
 **EPG data outside the EPG view.** The info dialog needs the event that contains the playback position (REQ-27). The APP therefore also sends `get_epg` for now ± 2 h after the service list is loaded and then every 300 s (the event grid of D-08); the EPG view uses the same `epg` object and refreshes it when it opens (REQ-33).
 
-**Connection loss (REQ-57).** When the WebSocket closes, `connected = false`, all pending calls are rejected and APP-MWC reconnects every 2 s. After reconnecting, the APP sends `get_status` and `get_services`. If `get_status` returns a session, the model takes it as the current session (`session`, `currentServiceId`, `lastPlayId` cleared); if its state is `playing`, the player is created as for the first `playing`; otherwise the APP waits for the next `session_state`. If it returns `idle`, the APP starts service number 1 as in REQ-03.
+**Connection loss (REQ-57).** When the WebSocket closes, `connected = false`, all pending calls are rejected and APP-MWC reconnects every 2 s. After reconnecting, the APP sends `get_status` and `get_services` and adopts the returned session.
+
+**Adopting a session** (after a reconnect, and after a rejected `play`). If `get_status` returns `idle`, the APP starts service number 1 as in REQ-03. Otherwise the returned data become `session`, `currentServiceId` is its `service_id` and `lastPlayId` is cleared; then:
+
+- if a player of this session exists (`playerSession = session.number`), it is kept;
+- otherwise, if the session has already been playing (`playing_since ≠ null`, state `playing` or `no_signal`), the APP sends `play` for the same service from the current playback position: `"live"` for a live session, otherwise `start_time + (now − playing_since)`. A player created in the middle of a session would begin with the oldest listed segment, not at the position of the viewer (REQ-25), so the session is requested again from that position;
+- otherwise the APP reacts as to a `session_state` event with these data (table above): `key_required` opens the key dialog, `error` and `stopped` show the status message, and in `starting`, `waiting_stream` or `validating_key` the APP waits for the first `playing`, which creates the player.
 
 **Player (APP-VIEW `player.js`).** hls.js is created with `{ startPosition: 0 }` and attached with `attachMedia(video)` and `loadSource(url)`; `video.play()` is called on `MANIFEST_PARSED`. Chromium is started with `--autoplay-policy=no-user-gesture-required`, so that playback with sound starts without a click (D-12, REQ-61). Fatal hls.js errors are handled in Section 4.8.
 
@@ -2193,7 +2207,7 @@ Keys not listed for a context are ignored (REQ-60). The key dialog shows `keyBuf
 
 #### 4.4.6 Testability of the application
 
-- The model, APP-KEY and all presenters are tested with `node --test webui/tests/` (NFR-10), with a fake middleware client that returns the JSON examples of Section 3.6 and a fake clock that advances the timers of 4.4.5 explicitly.
+- The model, APP-KEY and all presenters are tested with `node --test webui/tests/*.test.js` (NFR-10), with a fake middleware client that returns the JSON examples of Section 3.6 and a fake clock that advances the timers of 4.4.5 explicitly.
 - The views and hls.js are tested in Chromium against the mock middleware of Section 2.2.7 (acceptance level, Section 5).
 - **Diagnostics mode.** When the page is opened with the URL parameter `?diag=1`, APP-VIEW writes the marks `key`, `osd`, `frame`, `frag`, `wait` and `resume` of Section 5.1.8 with `console.info`. The mode changes no behavior and is off by default; it exists only for the measurements and checks of NFR-01, NFR-02, NFR-04, NFR-05 and NFR-06 (Sections 5.4, 5.6).
 
@@ -2254,7 +2268,7 @@ flowchart LR
 | B4 | AL task queue | All AL callbacks → AL worker | Control tasks: unbounded (a few per second). **Data tasks: at most 8 192** (≈ 3 s of the TS packets of one session; ≈ 2 MiB). | A new data task is dropped by the posting callback and counted; a warning with the count is logged at most once per second. Control tasks are always queued. The tuner thread never waits for the AL. | Posting callback (copy of one TS packet in a fixed 188-byte array, or of one section) | AL worker after executing the task, or at `close()` of the queue |
 | B5 | Segment being built | AL-OUT → `IHlsStore::write_file` | 1 MiB reserved once per session (2 s at 4 Mbit/s) | If 2 s of content (by PCR) have passed without a key-frame start, the segment is discarded with a warning and AL-OUT waits for the next key-frame start (IF-INT-02: at most 2 s). | AL-OUT at `open(n)` | AL-OUT at `close()` |
 | B6 | Held segments during key validation | AL-OUT → `write_file` after `EV-KEY-OK` | At most 4 complete segments (the stream deadline of 3 s ends validation, Section 4.3) | The oldest held segment is dropped (cannot happen within the 3 s deadline with segments of at least 1 s). | AL-OUT | AL-OUT: written at `EV-KEY-OK`, discarded by RELEASE |
-| B7 | HLS directory of the session | AL-OUT (through PAL-FS) → PAL-WS file serving → hls.js | Playlist with the last 6 segments; a segment file is removed when it is 3 positions older than the first listed segment, so at most 6 + 2 = 8 segment files (the 6 listed and the 2 most recently unlisted) plus one temporary file during `write_file` exist (REQ-23, HLR-17, NFR-06) | — (removal is part of every segment write) | PAL-FS (`open_session`, `write_file`) | PAL-FS (`remove_file`, `close_session`; whole directory at `Platform::start()`) |
+| B7 | HLS directory of the session | AL-OUT (through PAL-FS) → PAL-WS file serving → hls.js | Playlist with the last 6 segments; before a new segment is written, the segment that will then be 3 positions older than the first listed one is removed, so at most 6 + 2 = 8 segment files exist at any time: the 6 listed and the 2 most recently unlisted ones, and while a new segment is being written (temporary name, then rename) it takes the place of the one removed just before (REQ-23, HLR-17, NFR-06) | — (removal is part of every segment write) | PAL-FS (`open_session`, `write_file`) | PAL-FS (`remove_file`, `close_session`; whole directory at `Platform::start()`) |
 | B8 | MSE source buffers | hls.js → browser decoders | hls.js defaults (`maxBufferLength` 30 s), not changed | hls.js stops loading segments until the buffer drains. | Browser | Browser (hls.js `destroy()`) |
 | B9 | Web socket and HTTP send buffers | PAL event loop → browser | Mongoose connection buffers | Mongoose keeps the data until the socket accepts it (control traffic only, files are streamed in chunks). | Mongoose | Mongoose |
 | B10 | Head-end send path | Session sender → UDP socket | One datagram of 12 + 1 316 bytes at a time; content read from the file in blocks of 7 TS packets | — (`sendto` on loopback does not block for this rate) | Session sender thread | Session sender thread at its end |
@@ -2472,7 +2486,7 @@ sequenceDiagram
     HE-->>SES: 200 {"start_time": 1794999600}
     Note over SES,HE: stream, PSI, output and playing as in 4.6.3
     API->>MWC: session_state 13 playing, start 1794999600, start_time 1794999600
-    PRS->>PRS: mode ARCHIVE, position = start_time + (now - firstPlayingAt) (REQ-43)
+    PRS->>PRS: mode ARCHIVE, position = start_time + (now - playing_since) (REQ-43)
 ```
 
 #### 4.6.5 Protected archive: no key, incorrect key, correct key, playback from the same T
@@ -2515,7 +2529,7 @@ sequenceDiagram
     HE-->>SES: 200 {"start_time": T}
     Note over SES,PAL: PSI as in 4.6.2, set_key([video, audio], key) before the TS filters
     PAL-->>DSC: first video packet, scrambled true (decrypted with the stored key)
-    DSC->>SES: EV-VIDEO1 protected, key stored - T-15
+    DSC->>SES: EV-VIDEO1 protected, key set - T-15
     API->>MWC: session_state 14 validating_key
     PAL-->>DSC: video packet with payload_unit_start_indicator 1
     DSC->>DSC: payload does not start with 00 00 01 (D-11)
@@ -2535,7 +2549,7 @@ sequenceDiagram
     SES->>HE: POST /start {"start": T}
     HE-->>SES: 200 {"start_time": T}
     Note over SES,PAL: PSI, set_key, TS filters
-    DSC->>SES: EV-VIDEO1 protected, key stored - T-15
+    DSC->>SES: EV-VIDEO1 protected, key set - T-15
     PAL-->>OUT: decrypted packets, segments held in memory (REQ-52)
     PAL-->>DSC: three video PES starts
     DSC->>DSC: all three start with 00 00 01
@@ -2619,7 +2633,7 @@ sequenceDiagram
 
 #### 4.6.8 Head-end lost during playback
 
-Transitions T-22, T-26, T-29 (head-end stays down) and T-28 (head-end restarted before 15 s have passed); REQ-69, US-19 AC3.
+Transitions T-22, T-26, T-29 (head-end stays down: three failed keepalives) and T-28 (head-end restarted before the third keepalive); REQ-69, US-19 AC3.
 
 ```mermaid
 sequenceDiagram
@@ -2639,15 +2653,15 @@ sequenceDiagram
     API->>PRS: session_state 21 no_signal, reason data_lost
     PRS->>PRS: status "No signal", player kept
     alt head-end stays down
-        loop every 5 s - T-26
+        loop every 5 s, three times - T-26
             SES->>HEC: keepalive(hs-000030)
-            HEC-->>SES: EV-KA-FAIL (connection refused)
+            HEC-->>SES: EV-KA-FAIL (connection refused), keepalive_failures + 1
         end
-        Note over SES: now - t0 >= 15 s - T-29
-        SES->>PAL: RELEASE (no head-end to stop)
+        Note over SES: third consecutive failure, 15 s after t0 - T-29
+        SES->>PAL: RELEASE (its POST /stop fails and is only logged)
         API->>PRS: session_state 21 error HEADEND_UNREACHABLE
         PRS->>PRS: destroy player, status "No signal"
-    else head-end restarted within 15 s
+    else head-end restarted before the third keepalive
         SES->>HEC: keepalive(hs-000030)
         HEC-->>SES: EV-KA-NOTFOUND (SESSION_NOT_FOUND) - T-28
         SES->>PAL: RELEASE
@@ -2773,11 +2787,11 @@ One sender thread per head-end session. State: file offset, loop counter `L`, RT
 1. **First datagram:** the cached PAT and PMT packets (2 TS packets, Section 3.4 "Start of session").
 2. **Blocks:** then read 7 TS packets from the offset; a block does not cross the end of the file, so the last block of a pass can have 1 – 6 packets (allowed by IF-EXT-05). At the end of the file the offset becomes 0 and `L` is incremented (D-08); the stream continues without a pause.
 3. **Content time of a block:** `c = c_entry + (offset − offset_entry) / (bytes per second between the two index entries around the offset)`, i.e. linear interpolation between the PCR index entries (exact enough with CBR multiplexing); the total content time is `C = L · D + c`.
-4. **Pacing:** the block is sent at monotonic time `w0 + (C − c0)`; the thread sleeps until then. If the thread is more than 1 s late (for example after the laptop was suspended), `w0` is reset so that the next block is sent at once, and a warning is logged. Over 10 s the average bitrate therefore equals the multiplex rate (REQ-66).
+4. **Pacing:** the block is sent at monotonic time `w0 + (C − c0)`; the thread sleeps until then. If the thread is more than 1 s late (for example after the head-end process was suspended), it neither sends the missed content in a burst nor shifts the timeline: it computes the content time that belongs to the current monotonic time, `C' = c0 + (now − w0)`, sets `L = ⌊C' / D⌋`, takes the index entry with the largest `c ≤ C' mod D` (as in 4.7.4) and continues from its offset; a warning is logged. The receiver sees a forward PCR jump, which it handles like a loop boundary (REQ-24). Over 10 s the average bitrate therefore equals the multiplex rate (REQ-66).
 5. **RTP header:** `V = 2`, `PT = 33`, `M = 0`, sequence number + 1 per datagram, timestamp `base + round(C · 90 000) mod 2³²`, SSRC from the start request (Section 3.4).
 6. **Stop:** the thread checks a stop flag before every block; a stop therefore takes at most one block interval (about 3 ms at 3.5 Mbit/s) plus the current sleep, and `POST /stop` returns only after the thread has ended (Section 3.3.2).
 
-Because the session keeps sending in real time from `T`, an archive session is "delayed live": the content sent at wall time `t` is the content of `T + (t − t_start)`, and the burned-in time code of the receiver advances with the clock (NFR-04). At the start and at every loop boundary the continuity counters of the receiver see a discontinuity, which the receiver tolerates (REQ-15, REQ-24).
+Because the session keeps sending in real time from `T` and step 4 never shifts the timeline, an archive session is "delayed live": the content sent at wall time `t` is always the content of `T + (t − t_start)`, and the burned-in time code of the receiver advances with the clock (NFR-04). This is the property on which the position formula of the UI relies (`playing_since`, Section 3.6.3). At the start, at every loop boundary and after a skip of step 4 the continuity counters of the receiver see a discontinuity, which the receiver tolerates (REQ-15, REQ-24).
 
 #### 4.7.6 Head-end control (SRV-HEC)
 
@@ -2785,7 +2799,7 @@ Because the session keeps sending in real time from `T`, an archive session is "
 - **`POST /start`:** validate the body (Section 3.3.1, `INVALID_REQUEST` for a missing or malformed field) → service known (`SERVICE_NOT_FOUND`) → archive window (`OUT_OF_ARCHIVE`, `FUTURE_TIME`) → stop the existing session of the same endpoint and wait for its thread → compute the position (4.7.4) → create the session with `last_seen = now` and start its thread → respond `200`. The steps after validation run under the lock, so two concurrent start requests from the same endpoint cannot both create a session.
 - **`POST /keepalive`:** set `last_seen = now`; unknown id → `SESSION_NOT_FOUND`.
 - **`POST /stop`:** stop the thread, remove the session; unknown id → `SESSION_NOT_FOUND`.
-- **Watchdog:** every 1 s, stop every session with `now − last_seen ≥ 15 s` and log `session expired` with its id (REQ-68). A receiver that stops sending keepalives therefore loses its stream after 15 – 16 s, within the 20 s of NFR-07.
+- **Watchdog:** every 1 s, stop every session with `now − last_seen ≥ 15 s` and log `session expired` with its id (REQ-68). A receiver that stops sending keepalives therefore loses its stream 15 – 16 s after its last keepalive (REQ-68, NFR-07, US-21 AC4).
 - **Invalid input:** malformed JSON, unknown paths and methods are answered with `400` / `404` and an error object, and logged; no exception reaches the HTTP server loop (REQ-58).
 
 #### 4.7.7 OTT MW server and EPG generation (SRV-MW)
@@ -2827,9 +2841,9 @@ Because the session keeps sending in real time from `T`, an archive session is "
 | ER-12 | Head-end not reachable or no answer to `POST /start` within 2000 ms | AL-HEC (AL) | T-08 → `error` (`HEADEND_UNREACHABLE`) | "No signal" | New `play` once the head-end runs | HLR-09; REQ-21 |
 | ER-13 | `INVALID_REQUEST` from the head-end | AL-HEC (AL) | T-08 → `error` (`INVALID_REQUEST`), logged as a programming error | "No signal" | New `play` | Section 3.10 |
 | ER-14 | Keepalive answered with `SESSION_NOT_FOUND` (head-end restarted or session expired) | AL-HEC (AL) | T-28 → `error` (`HEADEND_UNREACHABLE`) | "No signal" | New `play` starts a new head-end session | US-19 AC3; REQ-69 |
-| ER-15 | No answer to keepalives for 15 s | AL-SES (AL) | T-29 → `error` (`HEADEND_UNREACHABLE`) | "No signal" | New `play` | US-19 AC3; REQ-69 |
+| ER-15 | Three consecutive keepalives fail (15 s) | AL-SES (AL) | T-29 → `error` (`HEADEND_UNREACHABLE`) | "No signal" | New `play` | US-19 AC3; REQ-69 |
 | ER-16 | `SESSION_NOT_FOUND` in response to `POST /stop` | AL-HEC (AL) | Treated as success | — | — | Section 3.3.2 |
-| ER-17 | Receiver stops or crashes during a session | SRV-HEC watchdog (SRV) | Session stopped after 15 s without keepalive, logged | — | — | US-21 AC4; REQ-68 |
+| ER-17 | Receiver stops or crashes during a session | SRV-HEC watchdog (SRV) | Session stopped 15 – 16 s after its last keepalive, logged | — | — | US-21 AC4; REQ-68 |
 | ER-18 | Invalid request to the head-end or the OTT MW server (malformed JSON, random bytes, unknown path) | SRV-HEC / SRV-MW (SRV) | `400` / `404` with an error object, logged | — | — | REQ-58; NFR-07 |
 | **Reception** | | | | | | |
 | ER-19 | No RTP data within 5 s after the head-end accepted | AL-SES (AL), tuner status (HAL) | T-20 → `no_signal` (`no_data_at_start`); keepalives continue | "No signal" | Automatic at `Locked` (T-10) | US-05 AC2; REQ-20 |
@@ -2850,7 +2864,7 @@ Because the session keeps sending in real time from `T`, an archive session is "
 | **User interface** | | | | | | |
 | ER-33 | Malformed message on the control WebSocket (`INVALID_COMMAND`) | AL-API (AL) | Error response if the `id` is readable, otherwise ignored; logged | — | — | Section 3.6.1; REQ-58 |
 | ER-34 | Control WebSocket closed (middleware stopped or restarted) | APP-MWC (APP) | Pending calls rejected; reconnect every 2 s; after reconnect `get_status`, `get_services` (Section 4.4.4) | "No signal" while disconnected | Automatic at reconnect | REQ-57 |
-| ER-35 | Fatal hls.js error | APP-VIEW (APP) | `MEDIA_ERROR`: `hls.recoverMediaError()` once. Any further fatal error: destroy the player and create it once more on the same playlist. A third fatal error in the same session: destroy the player | Third error: "No signal" until the next `play` | New `play` | REQ-25 |
+| ER-35 | Fatal hls.js error | APP-VIEW (APP) | Only errors of the player of the current session (`playerSession = session.number`) are handled; errors of the player of a superseded session, whose HLS directory the AL has already removed, are ignored until it is replaced (REQ-25). `MEDIA_ERROR`: `hls.recoverMediaError()` once. Any further fatal error: destroy the player and create it once more on the same playlist. A third fatal error in the same session: destroy the player | Third error: "No signal" until the next `play` | New `play` | REQ-25 |
 | ER-36 | Viewer changes the choice before the previous operation has finished | APP-PRS, AL-SES | Not an error: debounce (REQ-07, REQ-39) and T-01 with generation check (Section 4.6.6) | — | — | US-18; [GUIDELINES] |
 | **Configuration and content files** | | | | | | |
 | ER-37 | Missing or invalid configuration file (`middleware.json`, `server/config.json`) or `services.json` | AL-MAIN, P3, P4 | Process exits with code 1 and a message naming the file; `scripts/start.sh` stops and names the component (NFR-12) | — (system does not start) | Fix the file, run `scripts/start.sh` again | [GUIDELINES] (missing input file) |
@@ -2888,7 +2902,7 @@ Structure:
 
 | Level | Object under test | Neighbours replaced by | Environment (5.1.2) | Tool / command | Written by | Run |
 |---|---|---|---|---|---|---|
-| **Unit** | One module, or the free functions of one module (Section 4.2.4): AL modules with the fake DTV SDK and fake platform (Section 2.2.7); HAL and PAL modules with byte arrays and loopback sockets; SRV modules with temporary files; APP model, key mapping and presenters with a fake middleware client and a fake clock (Section 4.4.6). | Fakes and stand-ins of Section 2.2.7 | E1 | C++: `ctest --test-dir build --output-on-failure` (GoogleTest); Python: `python3 -m unittest discover -s server/tests`; Web: `node --test webui/tests/` | The work package that owns the module | Before every pull request (rule 3 of Section 2.2.7); all must pass before the merge |
+| **Unit** | One module, or the free functions of one module (Section 4.2.4): AL modules with the fake DTV SDK and fake platform (Section 2.2.7); HAL and PAL modules with byte arrays and loopback sockets; SRV modules with temporary files; APP model, key mapping and presenters with a fake middleware client and a fake clock (Section 4.4.6). | Fakes and stand-ins of Section 2.2.7 | E1 | C++: `ctest --test-dir build --output-on-failure` (GoogleTest); Python: `python3 -m unittest discover -s server/tests`; Web: `node --test webui/tests/*.test.js` | The work package that owns the module | Before every pull request (rule 3 of Section 2.2.7); all must pass before the merge |
 | **Integration** | Two neighbouring parts of the system connected over a real interface of Section 3 (IF-EXT-03, IF-EXT-04, IF-EXT-05, IF-INT-01, IF-INT-02, IF-INT-04), and the operations of the sequence diagrams of Section 4.6. | The remaining parts: stand-ins of Section 2.2.7 or test tools (5.1.6) | E2 | Scripts in `tests/integration/` | Both owners of the interface; reviewed by both | After every merge into `main` that changes one of the two sides |
 | **Acceptance** | The complete system started with `scripts/start.sh`: user stories (Section 1.9) and non-functional requirements (Section 2.4). | Nothing | E3 | Written procedure plus measurement scripts in `tests/acceptance/` | From Sections 1 and 2 only, not from the code | At milestones I-3 (protected rewind subset), I-4 (complete) and I-5 (final run on the defense laptop) |
 
@@ -3152,7 +3166,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | ID | Verifies | Anchors | Preconditions and input | Steps | Expected result | Evidence |
 |---|---|---|---|---|---|---|
 | TST-131 | REQ-12, REQ-14 | T-01, T-03, T-06, T-09, T-11, T-12, T-19, T-18; 4.6.3 | Clear content `svc-1.ts` in the fake demux; fake head-end answers the example of 3.3.1 | 1. `play svc-1 live`; 2. run the queue | Response `{"session": 1}` before the first event of session 1; calls in the order `untune`, `tune({5004, ssrc})`, `open_session(1)`, PAT filter, `POST /start` with the same `ssrc`; events `starting`, `waiting_stream`, `playing` | TESTOUT |
-| TST-132 | REQ-12 | Rule 3; T-06 | As TST-131, but the fake HTTP client delivers the `/start` response only after all data events up to `EV-SEG1` | 1. `play`; 2. run the queue | Events `starting`, then directly `playing` (no state change before the `/start` response) | TESTOUT |
+| TST-132 | REQ-12 | Rule 3; T-06, T-19, T-17 | (a) As TST-131, but the fake HTTP client delivers the `/start` response only after all data events up to `EV-SEG1`; (b) content `svc-3.enc.ts` with KX stored, `/start` response delivered only after `EV-KEY-BAD` | 1. `play`; 2. run the queue; for (a) advance the clock 5 s after `Locked` | (a) Events `starting`, then directly `playing` with `protected: false` (no `session_state` before the `/start` response, no intermediate state sent); the stream deadline does not expire; (b) events `starting`, then directly `key_required` `key_rejected` with `protected: true`; KX removed only at the response; RELEASE including `POST /stop` for the session id of the response | TESTOUT |
 | TST-133 | REQ-21, REQ-41 | T-07, T-08; ER-10 – ER-13 | Fake head-end answers: (a) `FUTURE_TIME`, then `200`; (b) `OUT_OF_ARCHIVE`; (c) `INVALID_REQUEST`; (d) transport failure | 1. `play svc-1` with `T = now − 10` for each case | (a) second `/start` with `"live"`, `session_state.start` = `"live"`; (b) `error` `OUT_OF_ARCHIVE`; (c) `error` `INVALID_REQUEST`; (d) `error` `HEADEND_UNREACHABLE` | TESTOUT |
 | TST-134 | — (error paths) | T-04, T-05; ER-08, ER-26 | (a) fake tuner `tune` returns `false`; (b) `GET /services/svc-1` answers `404`; (c) it fails | 1. `play svc-1 live` | (a) `error` `RECEIVER_ERROR`; (b) `error` `SERVICE_NOT_FOUND`; (c) `error` `MW_UNREACHABLE`; no `POST /start` in any case | TESTOUT |
 | TST-135 | REQ-41 | T-01 | Clock at `t = 1795000000` | 1. `play` with `T` = `t − 8000`, `t − 7195`, `t − 60`, `t`, `t + 100` | `session_state.start` and `/start` body: `t − 7195`, `t − 7195`, `t − 60`, `"live"`, `"live"` | TESTOUT |
@@ -3160,12 +3174,12 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-137 | REQ-20 | T-22, T-23; ER-20 | Session `playing` | 1. `Unlocked`; 2. check the HLS store; 3. `Locked` | 1: `no_signal` `data_lost`; 2: directory and files kept, no `close_session`; 3: `playing`, no new session number | TESTOUT |
 | TST-138 | REQ-17; REQ-51 (deadline) | T-13, T-21; ER-25 | (a) content `test/novideo.ts`; (b) `Locked`, PAT, PMT, but no video packet; K3 stored | 1. Play; for (b) advance the clock 3 000 ms after `Locked` | (a) `error` `INVALID_STREAM` after `EV-PMT-NOVIDEO`; (b) `error` `INVALID_STREAM` exactly at 3 000 ms; K3 still stored | TESTOUT |
 | TST-139 | REQ-45; US-14 AC1 | T-14; RELEASE | Content `svc-3.enc.ts`, no key stored, `play svc-3` with `T = t − 600` | 1. Play; 2. record the calls | `key_required` `no_key`, `start` = `T`; RELEASE in the order: timers and HTTP cancelled, filters closed, `clear_keys`, `untune`, `close_session`, `POST /stop`; no `write_file` call during the whole session | TESTOUT |
-| TST-140 | REQ-49, REQ-52; D-14; US-14 AC4 | T-24, T-15, T-16, T-18 | State after TST-139 | 1. Advance the clock 120 s; 2. `set_key svc-3 K3` | Same session number, new SSRC (≠ previous), `POST /start` with `start` = `T` (not `T + 120`); events `starting`, `waiting_stream`, `validating_key`, `playing`; first segment written only after `EV-KEY-OK` | TESTOUT |
+| TST-140 | REQ-49, REQ-52, REQ-18; D-14; US-14 AC4 | T-24, T-15, T-16, T-18 | State after TST-139 | 1. Advance the clock 120 s; 2. `set_key svc-3 K3` | Same session number, new SSRC (≠ previous), `POST /start` with `start` = `T` (not `T + 120`); events `starting`, `waiting_stream`, `validating_key`, `playing`; no second `stream_info` for the session; first segment written only after `EV-KEY-OK` | TESTOUT |
 | TST-141 | REQ-53; US-16 AC2, AC3 | T-17, T-24 | State after TST-139 | 1. `set_key` KX; 2. advance 120 s; 3. `set_key` K3 | 1: `validating_key`, then `key_required` `key_rejected`, KX removed, `clear_keys`, held data discarded, `POST /stop`; 3: `/start` with `start` = `T`, then `playing` | TESTOUT |
 | TST-142 | REQ-49 | T-25, T-33, T-12 | Content `svc-3.enc.ts`; KX stored | 1. `set_key` K3 while `starting` before `EV-PMT`; 2. new session with KX; `set_key` K3 while `validating_key`; 3. `set_key svc-4 K4` while `svc-3` plays | 1: no restart, K3 set on the descrambler at T-12, `playing`; 2: restart (same number, new generation and SSRC), validation with K3, `playing`, K3 stored (not removed); 3: K4 stored, `svc-3` session unchanged | TESTOUT |
 | TST-143 | REQ-56; US-18; HLR-10 | T-01, rule 2; 4.6.6 | `play svc-4` with the `/start` response held back | 1. `play svc-3`; 2. deliver the old `/start` response, a filter-data task, a timer expiry and a tuner status of the old generation | `http.cancel` of the pending `/start`, filters closed, `close_session(old)`, `stopped` for the old session, then events of the new session only; none of the old tasks changes state or produces an event | TESTOUT |
-| TST-144 | REQ-56 | T-01, T-02 | Sessions in `key_required` and in `error` | 1. `play` in each; 2. `stop` in `playing` | 1: `stopped` sent for the old session, then the new session starts; 2: RELEASE, `stopped` | TESTOUT |
-| TST-145 | REQ-67, REQ-69 | T-26 – T-29; ER-14, ER-15 | Session `playing` from `EV-START-OK` at `t0` | 1. Advance 5 s steps to 30 s with `200` answers; 2. new session, answer `SESSION_NOT_FOUND`; 3. new session, keepalive failures from `t0` | 1: keepalives at 5, 10, … 30 s; 2: `error` `HEADEND_UNREACHABLE`, no `POST /stop`; 3: no state change at the failures of 5 and 10 s, `error` `HEADEND_UNREACHABLE` at the first failure with `now − last_keepalive_ok_ms ≥ 15 s` | TESTOUT |
+| TST-144 | REQ-56 | T-01, T-02 | Sessions in `key_required` and in `error` | 1. `play` in each; 2. `stop` in `playing`; 3. `stop` in `key_required` and in `error` | 1: `stopped` sent for the old session, then the new session starts; 2: RELEASE, `stopped`; 3: `stopped`, no PAL call | TESTOUT |
+| TST-145 | REQ-67, REQ-69 | T-26 – T-29; ER-14, ER-15 | Session `playing` from `EV-START-OK` at `t0` | 1. Advance 5 s steps to 30 s with `200` answers; 2. new session, answer `SESSION_NOT_FOUND`; 3. new session, keepalive failures from `t0`; 4. new session: failure, failure, `200`, failure, failure | 1: keepalives at 5, 10, … 30 s; 2: `error` `HEADEND_UNREACHABLE`, no `POST /stop`; 3: no state change at the failures of 5 and 10 s, `error` `HEADEND_UNREACHABLE` at the third failure (15 s); 4: no `error` (the `200` resets the count) | TESTOUT |
 | TST-146 | REQ-70 | T-31 | Session `playing` | 1. `shutdown`; (a) `/stop` answered after 100 ms; (b) `/stop` not answered | `POST /stop` sent; completion reported (a) at the response, (b) at 2 000 ms | TESTOUT |
 | TST-147 | REQ-59 | — | Fake-logger output of TST-131, TST-139 – TST-141 | 1. Search for the log entries | For every session: `play` (service, start), head-end session (id, SSRC, start time), PAT/PMT result, protection decision, key accepted / rejected, every state change, every error — each with a time stamp | TESTOUT |
 | TST-148 | — (bounded queue) | B4; ER-27 | Task queue in test mode, worker not running | 1. Post 10 000 data tasks and 5 control tasks; 2. advance the clock 3 s while posting 3 000 more data tasks; 3. run the queue | 1: 8 192 data tasks and all 5 control tasks queued, 1 808 counted as dropped; 2: at most one drop warning per second (3 lines); 3: control tasks executed, no state change caused by the drops | TESTOUT |
@@ -3222,7 +3236,7 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-312 | REQ-42; Section 3.1 | — | Clock at `t = 1795000000` | 1. Validate `T` = `t − 7200`, `t − 7201`, `t − 1`, `t` | Valid; `OUT_OF_ARCHIVE`; valid; `FUTURE_TIME` | TESTOUT |
 | TST-313 | — | ER-38 | IN-11 (missing content file; programs sum 590 s) | 1. Start the head-end with each | Exit code 1, message naming service and file | TESTOUT |
 | TST-314 | REQ-66; IF-EXT-05 | B10 | Content: `svc-1.ts`; RTP receiver socket of the test; session from `T` with `T mod 600 = 597` | 1. Run the sender for 12 s | First datagram: 2 TS packets (PAT, PMT); then 7 TS packets per datagram except the last one before the loop boundary (1 – 6); `V = 2`, `PT = 33`, `M = 0`, the given SSRC; sequence +1 per datagram without gaps; timestamps increasing except at the loop boundary; at about 3 s the packets of file offset 0 follow without a pause longer than 100 ms; average bitrate over the last 10 s within ±5 % of 3.5 Mbit/s | TESTOUT |
-| TST-315 | REQ-66 | 4.7.5 step 4 | Advancing monotonic clock that jumps forward by 2 s once | 1. Run the sender | Warning logged; `w0` reset; the following blocks paced normally (no burst longer than 1 s of content) | TESTOUT |
+| TST-315 | REQ-66; D-08 | 4.7.5 step 4 | Advancing monotonic clock that jumps forward by 2 s once | 1. Run the sender | Warning logged; the next block starts at the index entry with the largest `c ≤ C'` (2 s of content skipped, no block of them sent); the following blocks paced normally (no burst); the content time of every later block equals `c0 + (now − w0)` within one PCR interval | TESTOUT |
 | TST-316 | REQ-65; D-06 | 4.6.9 | Head-end on an ephemeral port with a fixed clock; RTP receiver socket | 1. `/start`, `/keepalive`, `/stop` with the examples of 3.3; 2. IN-02, IN-03; 3. two `/start` for the same endpoint with SSRC `A`, then `B`; 4. 10 concurrent `/start` for one endpoint | 1: responses as in 3.3 (`hs-000001`, …); 2: the codes of 5.2.5; 3: after the second response no datagram with SSRC `A`; 4: exactly one session exists afterwards | TESTOUT |
 | TST-317 | REQ-68 | ER-17 | Advancing clock; one session with keepalives every 5 s, one without | 1. Advance 60 s | The session without keepalive stopped between 15 and 16 s with the log line `session expired`; the other one still running | TESTOUT, LOG |
 | TST-318 | REQ-58 | ER-18 | Head-end and OTT MW server running; IN-01 | 1. Send all inputs to both | `400` / `404` with an error object for each; both servers still answer a valid request | TESTOUT |
@@ -3240,13 +3254,13 @@ The negative tests use these inputs. They are produced by the helper scripts of 
 | TST-405 | REQ-10, REQ-11 | — | `svc-3` current | 1. `L`; 2. `↑` ×3; 3. `ENTER`; 4. `ENTER`, `↓`, `ESC` | 1: list with 4 services, lock on 3 and 4, highlight on 3; 2: highlight on 1 (no wrap-around); 3: `play svc-1 "live"`, list closed; 4: no `play` | TESTOUT |
 | TST-406 | REQ-25, REQ-26 | 4.4.4 | Fake middleware client | 1. `play` A (id 7), `play` B (id 8); response 7 then 8; 2. events of the session of 7; 3. `playing` of B; 4. `no_signal`, `playing` of B; 5. `key_required`, `error`, `stopped` of B | 1: only the response of 8 sets the session; 2: ignored; 3: player created on `/hls/<n>/index.m3u8` with `startPosition: 0`, old player destroyed; 4: player kept; 5: player destroyed | TESTOUT |
 | TST-407 | REQ-03, REQ-04 | ER-01 | — | 1. Connect; `get_services` answers `MW_UNREACHABLE`, `mw_status` `false`; 2. press `↑`, `E`; 3. `mw_status` `true`, list answered | 1: status "Server not reachable"; 2: keys processed (banner, EPG context); 3: `get_services` sent once, then `play` of number 1 `"live"` | TESTOUT |
-| TST-408 | REQ-57 | ER-34 | Session `playing` | 1. Close the connection; 2. advance 2 s steps; connect at the 3rd attempt; `get_status` returns `playing` of session 5; 3. repeat with `{"state": "idle"}` | 1: `connected = false`, pending calls rejected, status "No signal"; 2: attempts every 2 s, then `get_status` and `get_services`, session 5 adopted and the player created; 3: `play` number 1 | TESTOUT |
-| TST-409 | REQ-27, REQ-28 | 4.4.5 info | EPG of Section 5.2.4 (fixed clock `t = 1795000000`, local time zone of the test set to UTC) | 1. `play svc-3 "live"`; 2. `stream_info`, `session_state` arrive at 3 s; 3. 5 s pass; 4. `I`, `ESC`; 5. archive session with `T = 1794999600`, `protected` `true`, `playing` | 1: dialog `3 Premium One`, `Premium Evening 11:05 – 11:10`, `LIVE`; 2: content updated, still hidden at 5 s after step 1 (timer not restarted); 4: shown, hidden; 5: `ARCHIVE 11:00:00`, `Protected – key OK`, title `Premium Morning` | TESTOUT |
+| TST-408 | REQ-57 | ER-34 | Session 5 of `svc-2` `playing`, player of session 5 created; fixed clock `t` | 1. Close the connection; 2. advance 2 s steps; connect at the 3rd attempt; `get_status` returns `playing` of session 5; 3. as 2 with a fresh model (page reloaded, no player), session 5 live; 4. as 3, session 5 in ARCHIVE with `start` = `start_time` = `t − 600`, `playing_since` = `t − 100`; 5. as 3, `get_status` returns `key_required` of session 6; 6. as 3 with `{"state": "idle"}` | 1: `connected = false`, pending calls rejected, status "No signal"; 2: attempts every 2 s, then `get_status` and `get_services`; session 5 adopted, player kept, no `play`; 3: `play svc-2 "live"`; 4: `play svc-2` with `start` = `t − 500`; 5: key dialog opened, no `play`; 6: `play` number 1 | TESTOUT |
+| TST-409 | REQ-27, REQ-28 | 4.4.5 info | EPG of Section 5.2.4 (fixed clock `t = 1795000000`, local time zone of the test set to UTC) | 1. `play svc-3 "live"`; 2. `stream_info`, `session_state` arrive at 3 s; 3. 5 s pass; 4. `I`, `ESC`; 5. archive session with `T = 1794999600` = `start_time`, `playing_since` = `t`, `protected` `true`, `playing` | 1: dialog `3 Premium One`, `Premium Evening 11:05 – 11:10`, `LIVE`; 2: content updated, still hidden at 5 s after step 1 (timer not restarted); 4: shown, hidden; 5: `ARCHIVE 11:00:00`, `Protected – key OK`, title `Premium Morning` | TESTOUT |
 | TST-410 | REQ-29 – REQ-31 | 4.4.5 volume | Initial model | 1. `+` ×6; 2. `-` ×20; 3. `+` ×3, `M`, `+`; 4. `M`; 5. `play` and a new player | 1: volume 100 (clamped), indicator hidden 2 s after the last key; 2: 0; 3: muted with indicator, then unmuted at 40; 4: muted, the indicator stays while muted; 5: volume and mute applied to the new `<video>` element unchanged | TESTOUT |
 | TST-411 | REQ-33 – REQ-36 | — | Fixed clock `t = 1795000000`; `svc-3` current in ARCHIVE at `T = 1794999600` | 1. `E`; 2. `↓`, `→`, `←`, `↑`; 3. render marks; 4. EPG with no events for `svc-2`; `get_epg` error | 1: `get_epg` `from = t − 7200`, `to = t + 7200`; selection `svc-3` / `Premium Morning`; 2: moves between services keeping the time, and between events; selected event's title, times, description and availability shown; 3: `in_archive` true → "available", past with false → "not available", future → no mark; 4: "No information" for `svc-2`; for all services on error | TESTOUT |
 | TST-412 | REQ-37, REQ-38 | ER-09 | EPG open as TST-411 | 1. `ENTER` on the running event; 2. on an available past event; 3. on the event of `start` 1794992700; 4. on a future event | 1: `play` with its `start` 1794999900 (not `"live"`), EPG closed; 2: `play` with its start; 3: toast "Content not available in archive" for 3 s, EPG open, no `play`; 4: nothing | TESTOUT |
 | TST-413 | REQ-39, REQ-40 | 4.4.5 seek; 4.6.7 | Fixed clock `t`; LIVE `svc-1` | 1. `←` ×2, 500 ms; 2. in ARCHIVE at `t − 60`: `→` ×3 within 500 ms; 3. LIVE: `→`; 4. LIVE: `←`, `→`, 500 ms; 5. ARCHIVE: `B`; 6. LIVE: `B` | 1: one `play` with `t − 60`; 2: one `play` `"live"`; 3: nothing; 4: `play "live"` (target not earlier than `t`); 5: `play "live"`; 6: nothing | TESTOUT |
-| TST-414 | REQ-43 | 4.4.2 derived values | ARCHIVE session, `startTime = t − 90`, first `playing` at APP time `a` | 1. Advance 0, 1, 10 s | Position `HH:MM:SS` of `t − 90`, `t − 89`, `t − 80`; distance `−01:30` each time (advances with the clock); in LIVE only `LIVE` | TESTOUT |
+| TST-414 | REQ-43 | 4.4.2 derived values | ARCHIVE session, `start_time = t − 90`, `playing_since = t`, APP clock at `t` | 1. Advance 0, 1, 10 s | Position `HH:MM:SS` of `t − 90`, `t − 89`, `t − 80`; distance `−01:30` each time (advances with the clock); in LIVE only `LIVE` | TESTOUT |
 | TST-415 | REQ-46 – REQ-48 | 4.4.3 last row; ER-29 – ER-31 | `svc-3` session; contexts `EPG` with zap and seek timers running | 1. `key_required` `no_key`; 2. type `3a7f…` (32), `G`, `L`, `E`, `B` and a 33rd character; 3. `BACKSPACE`, `ENTER` with 31, then 32; 4. `key_required` `key_rejected`; `ESC`; 5. `K` | 1: timers cancelled, dialog "Enter the decryption key"; 2: 32 hex characters accepted (upper case), `G`/`L` ignored, `E`/`B` as characters, no playback shortcut, 33rd ignored, display `•` with `n/32`; 3: `ENTER` with 31 ignored, with 32 `set_key` with the typed key; 4: dialog "Incorrect decryption key", after `ESC` status "Protected service – press K to enter the key"; 5: dialog opens | TESTOUT |
 | TST-416 | — (ER-07, ER-32) | 4.4.4 response rows | — | 1. `play` answered `SERVICE_NOT_FOUND`; 2. `set_key` answered `INVALID_KEY_FORMAT` | 1: toast "Invalid service number" 3 s, then `get_status` and the returned session adopted; 2: key dialog reopened, title "Enter the decryption key" | TESTOUT |
 | TST-417 | REQ-20, REQ-21 | 4.4.2 status | Model with combinations of `connected`, `services`, `mwReachable`, state, error code, `keyDialogCancelled` | 1. Evaluate the persistent status message | The message of the highest-priority true condition of Section 4.4.2; error codes mapped as in Section 3.10 (`OUT_OF_ARCHIVE` → "Content not available in archive", `SERVICE_NOT_FOUND` → "Invalid service number", others → "No signal") | TESTOUT |
@@ -3288,7 +3302,7 @@ Every process is started with the same command and configuration as in `scripts/
 | TST-501 | REQ-64; IF-EXT-03 | — | CFG-OP | 1. `curl` `GET /services`, `/services/svc-1` … `svc-4`, `/epg?from=now−7200&to=now+7200`; 2. contract checker on all responses | Values of Section 5.2.3; EPG checks of Section 5.2.4 computed for the `server_time` of the response; contract checker reports no error | TESTOUT, LOG |
 | TST-502 | REQ-65, REQ-66; IF-EXT-04, IF-EXT-05 | 4.6.9 | CFG-OP; RTP receiver on port 5004 | 1. `POST /start` `svc-1` `"live"` with SSRC 1180331842; 2. receive 15 s; 3. `POST /stop`; 4. receive 2 s more; 5. `ffprobe` on the TS file | 1: response as in 3.3.1; 2: all headers valid, no sequence gap, first datagram with 2 TS packets (PAT, PMT), average bitrate over 10 s within ±5 % of 3.5 Mbit/s; 4: no datagram later than 100 ms after the `/stop` response; 5: one program, PIDs 4096 / 256 / 257, H.264 1280×720 and AAC | TESTOUT, FFPROBE |
 | TST-503 | REQ-42; US-21 AC1, AC2 | 4.7.4 | CFG-OP; `T` = start of the previous event of `svc-1` (`now − (now mod 300) − 300`) | 1. `/start` `svc-1` with `T`; receive 5 s; 2. extract the first decodable video frame of the TS file as PNG; 3. repeat with `svc-3` and count the packets per PID and scrambling bits | 2: burned-in time code = `T mod 600` (`00:00` or `05:00`) ± 1 s, title of that event; 3: PAT and PMT with `'00'`, packets of PIDs 256 and 257 with ≥ 16 payload bytes all `'10'`, `ffprobe` reads PAT and PMT of the encrypted stream | TESTOUT, PHOTO |
-| TST-504 | REQ-68 | ER-17 | CFG-OP; RTP receiver | 1. `/start` without keepalive; receive 20 s; 2. `/start`, keepalive every 5 s, receive 60 s | 1: the last datagram arrives between 15.0 and 16.5 s after the `/start` response; head-end log `session expired`; 2: datagrams for the whole 60 s | TESTOUT, LOG |
+| TST-504 | REQ-68 | ER-17 | CFG-OP; RTP receiver | 1. `/start` without keepalive; receive 20 s; 2. `/start`, keepalive every 5 s, receive 60 s | 1: the last datagram arrives between 14.9 and 16.1 s after the `/start` response (15 – 16 s by design, REQ-68); head-end log `session expired`; 2: datagrams for the whole 60 s | TESTOUT, LOG |
 | TST-511 | REQ-13, REQ-15, REQ-16, REQ-19; HLR-25 | 4.6.2 | CFG-RXP | 1. `pal_dump --ssrc 1180331842 --seconds 10 --out a.ts`; 2. `/start` `svc-1` live with the same SSRC; 3. `ffprobe` on `a.ts` | 1: PAT section with program 1 → 4096 and the PMT section printed; statistics `rtp_invalid = 0`, `rtp_lost = 0`, `sync_errors = 0`, `cc_errors ≤ 2` (session start); 3: one program with H.264 and AAC on 256 / 257, decode check without error | TESTOUT, FFPROBE |
 | TST-512 | REQ-50; D-04; R5 | — | CFG-RXP; keys K3, KX | 1. As TST-511 with `svc-3` and `--key-stdin` K3; 2. again with KX; 3. without a key | 1: every counted video PES start begins with `00 00 01`; decode check of the output without error; a PNG of its first key frame shows "Premium One"; 2 and 3: 0 PES starts begin with `00 00 01` | TESTOUT, PHOTO |
 | TST-521 | REQ-01, REQ-05; US-01 AC1, AC2 | 4.6.1; ER-01, ER-02 | CFG-MW with P4 not started | 1. Start P2, connect the WebSocket client; 2. `get_services`; 3. start P4; wait 7 s; 4. `get_services`; 5. stop P4; `get_services`, `get_epg` | 1: `mw_status` `false`; 2: `MW_UNREACHABLE`; 3: `mw_status` `true` at most 5.5 s after P4 opened its port; 4: the 4 services of 5.2.3; 5: the same 4 services; `get_epg` → `MW_UNREACHABLE` | TESTOUT, LOG |
@@ -3298,8 +3312,8 @@ Every process is started with the same command and configuration as in `scripts/
 | TST-525 | REQ-44 – REQ-46 (AL part), REQ-49 – REQ-54; D-14; US-14 – US-16 | 4.6.5; T-14, T-24, T-15, T-17, T-16, T-18 | CFG-MW; HLS checker; a listing of `/tmp/m15-hls/<n>/` every 50 ms; `T` = start of the previous event of `svc-3`; keys of 5.2.2 | 1. `play svc-3` with `T`; 2. `set_key` KX; 3. wait 60 s; `set_key` K3; 4. `play svc-3 "live"`; 5. `play svc-4 "live"`, `set_key svc-4 K3`, then `set_key svc-4 K4` | 1: `key_required` `no_key`, `start` = `T`; head-end log shows `/stop`; no segment file and no playlist at any listing; 2: `validating_key`, then `key_required` `key_rejected` within 3 s after the first RTP datagram of the attempt (middleware log); no segment ever written; 3: `starting` … `playing` with `start` = `T` and `start_time` = `T`; first frame of `seg-0.ts` shows `T mod 600` ± 1 s (not `T + 60`); 4: `playing` without `key_required`; 5: K3 rejected, K4 accepted | TESTOUT, LOG, PHOTO |
 | TST-526 | REQ-14, REQ-56; US-18; HLR-10 | 4.6.6; T-01, rule 2; ER-36 | CFG-MW | 1. `play svc-4 "live"`, after 50 ms `play svc-3 "live"`; 2. then 10 `play` commands alternating `svc-1` / `svc-2` at 100 ms intervals, the last one `svc-2` | After every `stopped` of a session no further event of it; the last session reaches `playing` with `service_id` `svc-2`; the head-end has exactly one session at the end (log); `/tmp/m15-hls` contains only the directory of the last session; middleware log: no error, dropped tasks of old generations only at `Debug` level | TESTOUT, LOG |
 | TST-527 | REQ-49 (concurrency) | T-25, T-33 | CFG-MW; KX stored for `svc-3` | 1. `play svc-3 "live"` and `set_key svc-3 K3` 20 ms later; 2. `play svc-3 "live"` with KX stored again, `set_key svc-3 K3` as soon as `validating_key` is received | 1 and 2: the session ends in `playing`; `key_rejected` is never reported; K3 is the stored key afterwards (a new `play svc-3` plays without `key_required`) | TESTOUT, LOG |
-| TST-528 | REQ-20, REQ-69; US-19 AC1, AC3 | 4.6.8; T-22, T-26, T-28, T-29; ER-14, ER-15, ER-20 | CFG-MW; `svc-1` `playing` | 1. Stop P3 (SIGTERM); 2. wait 25 s; 3. start P3, `play svc-2 "live"`; 4. in a second run: stop P3 and start it again within 5 s | 1: `no_signal` `data_lost` 3 s ± 0.5 s after the last datagram; 2: `error` `HEADEND_UNREACHABLE` between 15 and 20 s after the last successful keepalive; 3: `playing` without restarting P2; 4: `error` `HEADEND_UNREACHABLE` at the first keepalive after the restart (`SESSION_NOT_FOUND`), no `/stop` sent for it | TESTOUT, LOG |
-| TST-529 | REQ-20 | T-22, T-23; ER-20 | CFG-MW; `svc-1` `playing` | 1. Suspend P3 for 5 s (SIGSTOP), then resume (SIGCONT) | `no_signal` `data_lost`, then `playing` of the same session within 1 s after the first new datagram; no `error`; new segments are listed again | TESTOUT, LOG |
+| TST-528 | REQ-20, REQ-69; US-19 AC1, AC3 | 4.6.8; T-22, T-26, T-28, T-29; ER-14, ER-15, ER-20 | CFG-MW; `svc-1` `playing` | 1. Stop P3 (SIGTERM); 2. wait 25 s; 3. start P3, `play svc-2 "live"`; 4. in a second run: stop P3 and start it again within 5 s | 1: `no_signal` `data_lost` 3 s ± 0.5 s after the last datagram; 2: `error` `HEADEND_UNREACHABLE` at the third failed keepalive, 15 s ± 0.5 s after the last successful keepalive; 3: `playing` without restarting P2; 4: `error` `HEADEND_UNREACHABLE` at the first keepalive after the restart (`SESSION_NOT_FOUND`), no `/stop` sent for it | TESTOUT, LOG |
+| TST-529 | REQ-20; D-08 | T-22, T-23; ER-20; 4.7.5 step 4 | CFG-MW; HLS checker; `svc-1` `playing` | 1. Suspend P3 for 5 s (SIGSTOP), then resume (SIGCONT); 2. extract the first video frame of the first new segment | 1: `no_signal` `data_lost`, then `playing` of the same session within 1 s after the first new datagram; no `error`; new segments are listed again, the first one after `#EXT-X-DISCONTINUITY`; head-end log: skip warning; 2: time code `now mod 600` ± 2 s (the missed 5 s were skipped, the timeline of D-08 is kept) | TESTOUT, LOG, PHOTO |
 | TST-530 | REQ-70; REQ-68; NFR-07 (part) | T-31; ER-17 | CFG-MW; `svc-1` `playing` | 1. SIGTERM to P2; 2. new run: SIGKILL to P2 | 1: head-end log `/stop` for the session; P2 exits with code 0 within 3 s; 2: head-end log `session expired` 15 – 16 s after the last keepalive | TESTOUT, LOG |
 | TST-531 | REQ-24, REQ-66 | — | CFG-MW; HLS checker | 1. `play svc-1 "live"` when `now mod 600` = 580; run 60 s; 2. `play svc-1` with `T` such that `T mod 600` = 590; run 30 s | In both runs: the playlist shows `#EXT-X-DISCONTINUITY` before the first segment after the loop boundary and later `#EXT-X-DISCONTINUITY-SEQUENCE:1`; all segments probe and decode; the tuner statistics logged by the middleware show `rtp_lost = 0` (no RTP gap at the boundary) | TESTOUT, LOG |
 | TST-532 | Section 3.6; Section 2.2.7 rule 4 | — | (a) mock middleware; (b) CFG-MW | 1. Run the same `ws_client` script against (a) and (b): every command of 3.6.2 with valid and IN-07 inputs, `play` of all 4 services, `set_key` K3 for `svc-3`; 2. contract checker on all recorded messages | 2: no error for (a) and (b); the same sequence of message types and `state` values for the same script (session numbers and times may differ) | TESTOUT |
@@ -3343,7 +3357,7 @@ Acceptance tests verify the user stories of Section 1.9 in the target environmen
 | TST-615 | US-13 AC1; REQ-40 | — | PRE-2, `ARCHIVE` of "Demo One" | 1. `B`; 2. `B` again | 1: `LIVE`, time code equals the live time code; 2: nothing happens (no `/start` in the head-end log) | PHOTO, LOG |
 | TST-616 | US-14 AC1 – AC5; REQ-45 – REQ-49 | 4.6.5; ER-29, ER-31 | PRE-2 (no key stored) | 1. EPG: previous event of "Premium One", `ENTER`; 2. type 5 characters, `BACKSPACE`, `ESC`; 3. wait 30 s; `K`; type K3; `ENTER` | 1: no picture of "Premium One"; the key dialog "Enter the decryption key" opens by itself; 2: masked `•` with counter `5/32`, `4/32`, then the message "Protected service – press K to enter the key"; 3: playback in `ARCHIVE` with the time code of the event start (`00:00` / `05:00` ± 1 s), not 30 s later | PHOTO |
 | TST-617 | US-15 AC1 – AC3; REQ-51, REQ-54 | — | After TST-616 | 1. Watch 30 s; `I`; 2. `↓`, then `↑` back; 3. `←` | 1: picture and sound without visible corruption, time code running from the selected time, info "Protected – key OK"; 2 and 3: "Premium One" plays without the key dialog | PHOTO, NOTE |
-| TST-618 | US-16 AC1 – AC4; REQ-46, REQ-51, REQ-53, REQ-54; D-11, D-14 | 4.6.5; ER-30 | PRE-2 (no key stored); screen recorded during the test | 1. EPG: previous event of "Premium One", `ENTER`; enter KX; 2. wait 60 s; enter K3; 3. number `4`; enter K3; 4. enter K4 | 1: "Incorrect decryption key" dialog within 3 s after `ENTER` of the key; no frame of "Premium One" in the recording; 2: playback with the time code of the event start ± 1 s (not 60 s later), no application restart; 3: K3 rejected for "Premium Two"; 4: "Premium Two" plays live | PHOTO, LOG |
+| TST-618 | US-16 AC1 – AC4; REQ-46, REQ-51, REQ-53, REQ-54; D-11, D-14 | 4.6.5; ER-30 | PRE-2 (no key stored); screen recorded during the test | 1. EPG: previous event of "Premium One", `ENTER`; enter KX; 2. wait 60 s; enter K3; 3. number `4`; enter K3; 4. enter K4 | 1: "Incorrect decryption key" dialog; middleware log: at most 3 000 ms from the first `Locked` of the attempt to `key_required` `key_rejected` (`t_reject`, NFR-03); no frame of "Premium One" in the recording; 2: playback with the time code of the event start ± 1 s (not 60 s later), no application restart; 3: K3 rejected for "Premium Two"; 4: "Premium Two" plays live | PHOTO, LOG |
 | TST-619 | US-18 AC1; REQ-07, REQ-39, REQ-56; HLR-10 | 4.6.6; ER-36 | PRE-2; KX stored for `svc-3` (entered once) | 1. Number `3` and, while the key is being checked, `2` `ENTER`; 2. EPG: previous event of "Demo One" `ENTER`, then immediately `B`; 3. `↑` `↑` `L` `ENTER` on "Demo One" within 1 s | 1: "Demo Two" plays, no "Incorrect decryption key" shown; 2: `LIVE` "Demo One"; 3: "Demo One" plays; in every case the head-end has one session at the end and `/tmp/m15-hls` one session directory | PHOTO, LOG |
 | TST-620 | US-19 AC1 – AC3; REQ-05, REQ-20, REQ-69 | 4.6.8; ER-02, ER-14, ER-15, ER-20 | PRE-2, "Demo One" live | 1. Suspend P3 for 10 s (SIGSTOP / SIGCONT); 2. stop P4; zap `↑`, `E`; start P4; 3. stop P3, wait 25 s, start P3, `↑` | 1: "No signal" 3 s ± 0.5 s after the suspension, picture back within 3 s after the resume without a key press; 2: zap works, EPG "No information"; 3: "No signal", then the next service plays without restarting the receiver | PHOTO, LOG |
 | TST-621 | US-20 AC1, AC2; REQ-64 | — | PRE-2 | 1. Compare `content/services.json` with `curl GET /services` and the EPG on screen; 2. at three moments at least 2 min apart, compare the title of the running event in the info dialog with the burned-in title | 1: names, numbers and titles equal; 2: equal at all three moments, for the service shown | PHOTO, LOG |
@@ -3382,13 +3396,13 @@ These tests measure the non-functional requirements of Section 2.4 in E3 with th
 | TST-703 | NFR-03; REQ-51 | T-17 | PRE-2, PRE-3 | 1. 10 times, alternately for "Premium One" and "Premium Two": select the service, enter KX | In all 10 attempts `t_reject` ≤ 3 000 ms; "Incorrect decryption key" shown each time | MEASURE, LOG |
 | TST-704 | NFR-04; REQ-42; D-14 | 4.6.4, 4.6.5 | PRE-2, PRE-3; K3 entered | 1. Start 10 archive playbacks: previous event of each of the 4 services, the event starting 1 h back for "Demo One" and "Premium One", `←` once, `←` 4 times (−2:00), `←` from live after waiting until `now mod 600` = 10 (start point before the loop boundary), and the oldest available event of "Demo Two"; 2. take the screenshot at each `frame` mark | For every start: burned-in time code of the first picture equals `T mod 600` of the effective start point (`session_state.start`) within ±1 s | MEASURE, PHOTO |
 | TST-705 | NFR-05 | 4.4.3 | PRE-2, PRE-3 | 1. Press each of these keys 10 times in its context, at least 1 s apart: a digit, `↑`, `←`, `L`, `↓` in the list, `E`, `→` in the EPG, `I`, `+`, `M`, `K`, a hexadecimal character in the key dialog | `t_osd` ≤ 200 ms for all 120 presses | MEASURE |
-| TST-706 | NFR-06; REQ-24, REQ-66; HLR-17 | B4, B5, B7, B8, B9 | PRE-2, PRE-3; "Demo One" live | 1. Play for 30 min without a key press; 2. sample the memory of P2 every 10 s and the number of files in `/tmp/m15-hls/<n>/` every 1 s; 3. `pgrep` the four processes every 10 s | No process terminates; at least 3 loop boundaries passed (`#EXT-X-DISCONTINUITY` seen 3 times in the middleware log); every `t_gap` ≤ 1 000 ms; `VmRSS` maximum of minutes 1 – 30 minus `VmRSS` at minute 1 ≤ 20 MB; never more than 10 segment files (8 by design, Section 4.5) | MEASURE, LOG |
+| TST-706 | NFR-06; REQ-24, REQ-66; HLR-17 | B4, B5, B7, B8, B9 | PRE-2, PRE-3; "Demo One" live | 1. Play for 30 min without a key press; 2. sample the memory of P2 every 10 s and the number of files in `/tmp/m15-hls/<n>/` every 1 s; 3. `pgrep` the four processes every 10 s | No process terminates; at least 3 loop boundaries passed (`#EXT-X-DISCONTINUITY` seen 3 times in the middleware log); every `t_gap` ≤ 1 000 ms; `VmRSS` maximum of minutes 1 – 30 minus `VmRSS` at minute 1 ≤ 20 MB; never more than 8 segment files `seg-*.ts` (REQ-23, Section 4.5) | MEASURE, LOG |
 | TST-707 | NFR-06 (protected path) | B6 | As TST-706 with "Premium One" and K3 | 1. As TST-706 | As TST-706 | MEASURE, LOG |
 | TST-708 | NFR-07; REQ-58 | ER-18, ER-33 | PRE-2; "Demo One" live | 1. Send IN-01 – IN-04 to ports 8080 and 8081 and IN-07 to `/ws/control` (second WebSocket client) during playback; 2. zap `↑` | 1: playback continues without `t_gap` > 1 000 ms; error responses as in Section 5.2.5; 2: the next service plays; no process terminated | TESTOUT, LOG |
 | TST-709 | NFR-07; REQ-13 | ER-21 | PRE-2; "Demo One" live | 1. Send random datagrams (IN-08, random part) to UDP 5004 at 1 000 datagrams/s for 60 s during playback | Playback continues; `rtp_invalid` in the middleware statistics ≥ 59 000; no process terminated; no `no_signal` | TESTOUT, LOG |
-| TST-710 | NFR-07; REQ-69, REQ-68 | ER-02, ER-14, ER-15, ER-17 | PRE-2; "Demo One" live | 1. Stop P4, wait 10 s, start P4; 2. stop P3, wait 10 s, start P3; 3. zap `↑`; 4. kill P2 with SIGKILL and watch the head-end log | 1 – 3: no process other than the stopped one terminates; after both restarts the zap plays the next service without restarting the receiver; 4: the head-end stops sending (`session expired`) at most 20 s after the kill | TESTOUT, LOG |
+| TST-710 | NFR-07; REQ-69, REQ-68 | ER-02, ER-14, ER-15, ER-17 | PRE-2; "Demo One" live | 1. Stop P4, wait 10 s, start P4; 2. stop P3, wait 10 s, start P3; 3. zap `↑`; 4. kill P2 with SIGKILL and watch the head-end log | 1 – 3: no process other than the stopped one terminates; after both restarts the zap plays the next service without restarting the receiver; 4: the head-end stops sending (`session expired`) at most 16 s after the kill | TESTOUT, LOG |
 | TST-711 | NFR-08; HLR-16, HLR-17; REQ-55 | — | PRE-1; `tcpdump -i lo -w <capture>` started before `scripts/start.sh` | 1. Run the demo scenario of Section 5.8 (K3, KX and K4 entered); 2. `scripts/stop.sh`, stop `tcpdump`; 3. search every file under `logs/`, every file written during the run below the repository and below `/tmp` (by modification time), for the patterns of Section 5.2.2; 4. reassemble the TCP streams of the capture; search all streams and UDP payloads for the patterns, separately inside and outside the WebSocket connection to `/ws/control`; 5. list `/tmp/m15-hls` | 3: no match; 4: no match outside `/ws/control`; at least one match inside it (proof that the search finds the keys); 5: empty; the capture file is deleted after the analysis | CAPTURE, TESTOUT |
-| TST-712 | NFR-10 | — | Fresh clone, build directory empty | 1. Build; run `ctest --test-dir build`, `python3 -m unittest discover -s server/tests`, `node --test webui/tests/`; 2. check that tests with the IDs of Section 5.3 exist for AL-PSI, AL-DSC, AL-OUT, AL-SES, HAL-TUN, HAL-DMX, HAL-DSC, every PAL module, SRV-PKG and SRV-ARC | 1: each of the three commands runs all tests of its part and reports 0 failures; 2: every listed module has at least one test function named with a `TST` ID | TESTOUT |
+| TST-712 | NFR-10 | — | Fresh clone, build directory empty | 1. Build; run `ctest --test-dir build`, `python3 -m unittest discover -s server/tests`, `node --test webui/tests/*.test.js`; 2. check that tests with the IDs of Section 5.3 exist for AL-PSI, AL-DSC, AL-OUT, AL-SES, HAL-TUN, HAL-DMX, HAL-DSC, every PAL module, SRV-PKG and SRV-ARC | 1: each of the three commands runs all tests of its part and reports 0 failures; 2: every listed module has at least one test function named with a `TST` ID | TESTOUT |
 | TST-713 | NFR-11 | — | Fresh clone | 1. Build with `-Wall -Wextra` and save the build log; 2. list the imports of all Python files and compare them with `sys.stdlib_module_names` plus `cryptography`; 3. inspect `webui/` | 1: no line containing `warning:` in the build log; 2: no other module; 3: no build configuration, every script loaded as an ES module (`type="module"`), except the hls.js tag of Section 3.8 | TESTOUT |
 | TST-714 | NFR-12; HLR-23 | ER-37, ER-40 | PRE-1 | 1. `time scripts/start.sh`; 2. `scripts/stop.sh`; 3. occupy port 8081 with another process, run `scripts/start.sh`; 4. rename `webui/`, run `scripts/start.sh`; 5. break `middleware/main/middleware.json`, run `scripts/start.sh` | 1: picture of "Demo One" within 15 s; 2: no process left; 3: stops with a message naming the head-end; 4: stops with a message naming the Web application files; 5: stops with a message naming the middleware and the file; in 3 – 5 no component of the run is left running | TESTOUT, LOG |
 | TST-715 | NFR-13 | — | Logs of TST-711 | 1. Check every line of `logs/*.log` except `chromium.log` against the regular expression of TST-225 | One log file per component (`middleware`, `headend`, `mw_server`); every line matches | TESTOUT |
@@ -3425,7 +3439,7 @@ A high-level requirement is verified when all detailed requirements refined from
 | **REQ-15** | T | TST-211 | TST-511 | — |
 | **REQ-16** | T | TST-101, TST-102, TST-105, TST-213 | TST-511, TST-523 | — |
 | **REQ-17** | T | TST-103, TST-104, TST-105, TST-138, TST-213 | TST-523 | — |
-| **REQ-18** | T | TST-106 | TST-522 | — |
+| **REQ-18** | T | TST-106, TST-140 | TST-522 | — |
 | **REQ-19** | T | TST-105, TST-212 | TST-511, TST-523 | — |
 | **REQ-20** | T | TST-136, TST-137, TST-417 | TST-528, TST-529 | TST-608, TST-620 |
 | **REQ-21** | T | TST-133, TST-417 | — | — |
@@ -3578,9 +3592,9 @@ Transitions of Section 4.3.4:
 | **T-14** | TST-111, TST-139, TST-525 |
 | **T-15** | TST-111, TST-113, TST-140, TST-525 |
 | **T-16** | TST-113, TST-125, TST-140, TST-525 |
-| **T-17** | TST-114, TST-141, TST-525, TST-703 |
+| **T-17** | TST-114, TST-132, TST-141, TST-525, TST-703 |
 | **T-18** | TST-131, TST-140, TST-522, TST-525 |
-| **T-19** | TST-111, TST-131, TST-522 |
+| **T-19** | TST-111, TST-131, TST-132, TST-522 |
 | **T-20** | TST-136, TST-608 |
 | **T-21** | TST-138 |
 | **T-22** | TST-137, TST-528, TST-529 |
@@ -3688,7 +3702,7 @@ The defense allows 5 minutes of demonstration (Section 1.1, task text). The scen
 | 4 | 1:05 – 1:25 | `L`, `↑`, `ENTER` | Service list with lock symbols on 3 and 4, highlight moves, "Demo One" plays | Service list (US-04) |
 | 5 | 1:25 – 1:45 | `+` `+`, `-`, `M`, `M` | Volume indicator 60 %, 70 %, 60 %; mute indicator and silence; sound back at 60 % | Volume and mute (US-07, US-08) |
 | 6 | 1:45 – 2:15 | `E`, `↓` `↓` (to "Premium One"), `←` (to the previous event), `ENTER` | EPG with past events marked "available"; after `ENTER` no picture of "Premium One", the key dialog "Enter the decryption key" opens by itself | EPG with archive marks; time selection of a past protected program; protection detected from the stream (US-09 – US-11, US-14) |
-| 7 | 2:15 – 2:45 | KX (32 characters), `ENTER` | Masked characters with the counter `n/32`; within 3 s the dialog "Incorrect decryption key"; still no picture of "Premium One" | Incorrect key detected, nothing presented (US-16 AC1, AC2) |
+| 7 | 2:15 – 2:45 | KX (32 characters), `ENTER` | Masked characters with the counter `n/32`; a moment later the dialog "Incorrect decryption key" (at most 3 s after the stream arrives, NFR-03); still no picture of "Premium One" | Incorrect key detected, nothing presented (US-16 AC1, AC2) |
 | 8 | 2:45 – 3:25 | K3 (32 characters), `ENTER` | "Premium One" plays in `ARCHIVE` with the burned-in time code `00:00` (or `05:00`) — the start of the selected program, although about a minute has passed since step 6; `I`: "Protected – key OK" | Correct key, playback from the originally selected time (US-15, US-16 AC3, D-14) |
 | 9 | 3:25 – 3:55 | `←` `←`, wait for the picture, `→` | Position indicator `−MM:SS` changes by 60 s and 30 s; the time code jumps back 60 s, then forward 30 s | Rewind in steps on a protected service without a new key entry (US-12, US-15 AC3) |
 | 10 | 3:55 – 4:10 | `B` | "Premium One" live, `LIVE`, no key dialog | Return to live (US-13), key kept for the session |
