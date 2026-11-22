@@ -1,0 +1,16 @@
+{
+  "mw_base_url": "http://127.0.0.1:8080/api/v1",
+  "rtp_port": 5004,
+  "client_host": "127.0.0.1",
+  "ui_http_port": 8090,
+  "webui_dir": "webui",
+  "hls_dir": "/tmp/m15-hls",
+  "log_file": "logs/middleware.log",
+  "mw_timeout_ms": 800,
+  "headend_timeout_ms": 2000,
+  "mw_retry_s": 5,
+  "keepalive_interval_s": 5,
+  "keepalive_loss_s": 15,
+  "no_data_timeout_s": 5,
+  "stream_deadline_s": 3
+}
