@@ -1,7 +1,7 @@
 # Handover — M15 specification work
 
-**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code). **Updated:** 2026-11-20 — browser playback switched to HLS (D-13). 2026-11-21 — layering aligned with the professor's lecture drawing (DTV SDK in PAL; tuner, SW demux, descrambler in HAL) and head-end keepalive (spec 0.11); professor's lecture notes and open questions added (§5a).
-**For:** the next team member (Lazar or Smilja) and their coding agent, to continue writing `SPECIFICATION.md` without access to the previous conversation.
+**Written:** 2026-11-19, end of the first specification session (Ivan Berenić with Claude Code). **Updated:** 2026-11-20 — browser playback switched to HLS (D-13). 2026-11-21 — layering aligned with the professor's lecture drawing (DTV SDK in PAL; tuner, SW demux, descrambler in HAL) and head-end keepalive (spec 0.11); professor's lecture notes and open questions added (§5a); server-side archive confirmed by course staff (spec 0.12). 2026-11-22 — consistency fixes and the complete Section 4 (design, 4.1 – 4.8) written; all Section 4 decisions confirmed by Ivan (spec 0.21). Next: Section 5.
+**For:** the next team member (Lazar or Smilja) and their coding agent or Ivan's agent, to continue writing `SPECIFICATION.md` without access to the previous conversation.
 **Read first:** this file completely, then `SPECIFICATION.md` completely. The specification is the source of truth. This file explains how it was made, which rules apply and what comes next.
 
 ---
@@ -10,7 +10,7 @@
 
 Suggested first prompt for the agent:
 
-> Read `HANDOVER.md` and then `SPECIFICATION.md` in full. Do not write code or create other files. Confirm the current state (sections done, next section), list any inconsistencies you notice, and then continue with Section 4 as described in HANDOVER.md §8. Write the specification in English; talk to me in Serbian (Latin script).
+> Read `HANDOVER.md` and then `SPECIFICATION.md` in full. Do not write code or create other files. Confirm the current state (sections done, next section), list any inconsistencies you notice, and then continue with Section 5 (verification plan) as described in HANDOVER.md §8.2. Write the specification in English; talk to me in Serbian (Latin script).
 
 Before editing, the agent should run the consistency check of §9 to confirm the file is in the expected state.
 
@@ -87,14 +87,14 @@ Ivan's notes from the lecture, in short:
 - "LLM — atomic" (small steps).
 - **Seemed to conflict with the current spec** (the timeshift part is resolved, see question 1 below):
   - "Timeshift — happens in the DTV MW", "recording and viewing flows are different", "rewind back in seconds — a few seconds", "via a dialog", "one service". This reads like a **local timeshift in the middleware** (record the received stream, rewind a few seconds via a dialog), while the spec has a server-side archive (D-01), 30 s steps without a dialog (D-02, D-07), a looped archive (D-08) and 4 services (D-09).
-  - "TS demux not necessary for broadband managed?" (with a question mark) vs. "SW DMX mandatory".
+  - "TS demux not necessary for broadband managed?" (with a question mark) vs. "SW DMX mandatory". **Treated as resolved:** the same drawing lists SW DMX as a mandatory block, so the spec keeps it (HLR-25).
 
 Open questions to resolve before changing D-01 / D-02 / D-07 / D-08 / D-09 and before freezing Section 3:
 
 1. ~~Timeshift local in the DTV MW or server-side archive?~~ **Resolved (2026-11-21):** the professor confirmed the server-side archive without a local timeshift buffer as a fully valid solution ("you have the freedom, implement and argue"). D-01, D-02, D-07, D-08 stay unchanged; the lecture remarks about a local timeshift do not apply.
 2. What does "one service" mean (one service in total, one protected service, one service per TS)?
 3. What is "PMQ", and is a browser plugin required, or is the local WebSocket (allowed by the general guidelines for Linux + Web) acceptable?
-4. Questions asked / to ask the professor daily (3 per day): server-side archive vs timeshift; looped 10-minute content; HTTP stream control instead of RTSP; incorrect key → message vs corrupted picture.
+4. Questions still to ask the professor (3 per day): looped 10-minute content; HTTP stream control instead of RTSP; incorrect key → message vs corrupted picture. (Server-side archive vs timeshift: answered, see question 1.)
 
 ## 6. Team decisions and working preferences
 
@@ -106,22 +106,32 @@ These were decided explicitly by the team during the session. Keep them unless t
 4. **Who owns which layer is not decided yet.** The specification stays neutral: no names per work package.
 5. **For now only the specification is written.** No source code, no repository skeleton, no other files until the team says so.
 6. Internet is available at the defense, so hls.js is loaded from a CDN with a pinned version (HLR-21).
-7. Work step by step: one section (or subsection) per step, then a short summary to the team member for review.
+7. Work step by step: one section (or subsection) per step, then a short summary to the team member for review; wait for confirmation before the next step.
+8. **Milestone dates** of Section 2.2.7 (I-1 … I-5) are not maintained for now; do not report them as inconsistencies (Ivan, 2026-11-22).
 
-## 7. Current state of `SPECIFICATION.md` (version 0.12)
+## 7. Current state of `SPECIFICATION.md` (version 0.21)
 
 | Section | Status | Content |
 |---|---|---|
 | Header, conventions | done | Tags `[TASK]`, `[COMMON]`, `[GUIDELINES]`, `[D-xx]`. |
-| 1. User, goal, boundaries | done | Users, goals G-01 … G-09, context diagram, inputs (key bindings in 1.5.1), outputs, boundaries (built / reused / simulated, out of scope, external interfaces IF-EXT-01 … 06), **scope decisions D-01 … D-14**, user stories US-01 … US-22 with acceptance criteria, traceability. |
-| 2.1 High-level requirements | done | HLR-01 … HLR-25 from user goals, boundaries and technical constraints. |
-| 2.2 Technical postulates | done | Standards and formats, signal path (Mermaid, numbered media / metadata / control arrows), layering (App / AL / PAL / HAL, portability rule), modules (APP-xx, AL-xx, PAL-xx, SRV-xx), key interfaces, design patterns, parallel development (branches, rules, stand-ins, milestones I-1 … I-5), versions of reused components. |
-| 2.3 Functional requirements | done | REQ-01 … REQ-70, each with layer (APP / AL / PAL / HAL / SRV), source and verification method; traceability HLR → REQ. |
-| 2.4 Non-functional requirements | done | NFR-01 … NFR-17 (measurable). |
-| 2.5 Extensions | done | EXT-01 … EXT-11 (not mandatory). |
-| 3. Interface specification | done; **team review pending** — freeze as soon as the PMQ / plugin question (§5a, question 3) is answered | Conventions; IF-EXT-03 MW REST; IF-EXT-04 stream control; IF-EXT-05 RTP; IF-INT-05 content config; IF-INT-01 UI control WebSocket (commands, events, session states); IF-INT-02 HLS media stream (playlist + segments over HTTP); IF-INT-03 web files; IF-INT-04 C++ header with the DTV SDK (`ITuner`, `IDemux`) and platform services (`platform.hpp`, compiles with `g++ -std=c++17 -Wall -Wextra`); error codes. |
-| 4. Design | **next** | See §8. |
-| 5. Verification plan | after Section 4 | See §8. |
+| 1. User, goal, boundaries | done | Users, goals G-01 … G-09, context diagram, inputs (key bindings per context in 1.5.1: playback, number entry, service list, EPG, key dialog), outputs, boundaries, **scope decisions D-01 … D-14**, user stories US-01 … US-22, traceability. |
+| 2.1 – 2.5 Requirements | done | HLR-01 … HLR-25; technical postulates 2.2.1 – 2.2.8 (Node.js 18.19 added for Web tests); REQ-01 … REQ-70; NFR-01 … NFR-17; EXT-01 … EXT-11; HLR → REQ/NFR traceability complete (every REQ and NFR traced). |
+| 3. Interface specification | done; **team review pending** — freeze after the PMQ / plugin question (§5a, question 3) | As before, plus (2026-11-22): state `idle` (only via `get_status`), `no_signal` returns to the previous state, player created only at the first `playing` of a session, error codes `INVALID_STREAM` and `RECEIVER_ERROR`. |
+| 4. Design | **done** (4.1 – 4.8) | See the summary below. |
+| 5. Verification plan | **next** | See §8.2. |
+
+### Section 4 in short (decisions confirmed by Ivan on 2026-11-22)
+
+| Subsection | Key content and decisions |
+|---|---|
+| 4.1 Architecture | Processes P1 Chromium, P2 `dtv-middleware`, P3 `server/headend.py`, P4 `server/mw_server.py`, offline `content/generate.sh`, `server/package.py`; start order P4 → P3 → P2 → P1. Mermaid block diagram over Application / AL / PAL / HAL / drivers / operator side, built / reused / simulated (HAL blocks and SRV-ARC simulated). Module table with requirements. Dependency rules R1 – R5 (R5: receiver and operator side share no D-04 code). Internal HAL API `hal::IpTuner`, `hal::Demux`, `hal::Descrambler` (not frozen). |
+| 4.2 AL internal design | One AL worker thread with a task queue; PAL callbacks only copy and post. Control tasks never dropped, data tasks bounded. **Generation** counter (per stream attempt, incremented on `play` and on the `set_key` restart) separate from the session number; tuner status uses `untune → tuned_generation = g → tune`. Data structures, class diagram, session steps S1 – S12 (PAT filter and HLS directory opened **before** `POST /start`). No EPG cache in the AL. MW timeout 800 ms, head-end 2000 ms. Segment cut on `random_access_indicator`. Config `middleware/main/middleware.json`. Orderly stop ≤ 3 s. |
+| 4.3 AL-SES state machine | Rules (data path in `starting` only sets flags, applied at `/start` response; RELEASE procedure incl. `untune`), events `EV-…`, Mermaid state diagram, transition table **T-01 … T-32**. Stream deadline 3 s after the first `Locked` → `INVALID_STREAM` (stored key kept). `FUTURE_TIME` → one retry as live. |
+| 4.4 Application design | Files in `webui/`, model fields and derived values, UI contexts with state diagram and key table, reactions to IF-INT-01, timers. `key_required` opens the key dialog from any context; APP fetches EPG at start-up and every 300 s; AL answers `play` before the first event of the new session; `→` may undo a pending `←`; Chromium `--autoplay-policy=no-user-gesture-required`; service list without wrap-around; tests `node --test webui/tests/`. |
+| 4.5 Producer–consumer | Basis ≤ 4 Mbit/s (added to REQ-62). Threads of P2 – P4; PAL command queue + `mg_wakeup`; filter-table mutex. Buffers **B1 … B10** with capacity, overflow policy, owner; AL data queue 8 192 tasks; `SO_RCVBUF` 1 MiB without changing `rmem_max`; segment removed 3 positions after leaving the playlist (REQ-23 aligned). |
+| 4.6 Sequence diagrams | 4.6.1 start-up, 4.6.2 PSI via DTV SDK, 4.6.3 live zap, 4.6.4 archive from EPG, 4.6.5 no key → incorrect key → correct key from the same T, 4.6.6 rapid zapping, 4.6.7 steps and live, 4.6.8 head-end lost, 4.6.9 head-end `/start`. |
+| 4.7 Operator side | FFmpeg parameters (testsrc2, drawtext, x264 closed GOP 25, AAC 128k, CBR mux 3.5 Mbit/s, default PIDs 4096 / 256 / 257); packaging algorithm (key from stdin; payload < 16 B stays clear → REQ-51 checks only scrambled PES starts); PCR index and `T mod D`; pacing by interpolated content time; session table and watchdog; EPG formula. |
+| 4.8 Error handling | Principles and error matrix **ER-01 … ER-40**, coverage of all error codes, user-story negative cases and guideline cases. hls.js fatal error: one `recoverMediaError()`, one player re-creation, then "No signal"; "No signal" while the control WebSocket is down; `INVALID_KEY_FORMAT` reopens the key dialog; `start.sh` checks `GET /` before starting Chromium. |
 
 ### Key decisions to keep in mind (summary of Section 1.8)
 
@@ -146,6 +156,8 @@ Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL onl
 
 ### Known risks and points to watch
 
+- **Mermaid diagrams of Section 4 were not checked with a renderer** in the 2026-11-22 session (no mermaid-cli installed). Open `SPECIFICATION.md` in the GitHub or VS Code preview and fix any diagram that does not render.
+- **Section 3 changed on 2026-11-22** (see §7) before the team review; the review must include these changes.
 - **Loop boundary of the content (REQ-24):** when the 10-minute file wraps, PCR/PTS/DTS jump back by 600 s. The AL closes the segment and marks the next one with `#EXT-X-DISCONTINUITY`; hls.js is expected to handle this. Test early (NFR-06).
 - **HLS start position and latency:** playback must begin at the first segment of the playlist (hls.js `startPosition: 0`), otherwise the rewind would not start exactly at T (NFR-04, D-14). Verify this hls.js behavior at I-2. Zap time with HLS is longer than with a direct stream (NFR-01 allows 6 s to first picture).
 - **Browser playback path** (HLS files → hls.js → MSE) is the main integration risk; milestone I-2 exists to prove it early.
@@ -156,25 +168,7 @@ Technology (Section 2.2.8): C++17, GCC 13.3, CMake 3.28, OpenSSL 3.0.13 (PAL onl
 
 ### 8.1 Section 4 — Design specification
 
-Planned subsections (adjust if needed, but cover everything the guidelines require):
-
-1. **4.1 Architecture block diagram** across **HAL, PAL, AL and application** (the course's Project 2 deliverable), with every module of 2.2.4 placed in its layer, marked built / reused / simulated. Mermaid.
-2. **4.2 AL internal design:** threading model (proposal: PAL callbacks only post tasks to one AL worker thread with a task queue, so AL state needs no locks), main data structures (service list, session object with generation number, kept start point, key store), module collaboration.
-3. **4.3 AL-SES session state machine:** states exactly as in IF-INT-01 §3.6.3 (`idle`, `starting`, `waiting_stream`, `key_required`, `validating_key`, `playing`, `no_signal`, `stopped`, `error`); events (play, HTTP ok / error, tuner `Locked` / `Unlocked`, keepalive failure, PAT/PMT parsed, protection decided, set_key, key accepted / rejected, 5 s and 3 s timers, data resumed, stop); **state diagram (Mermaid `stateDiagram-v2`) + full transition table** (state × event → action, next state, emitted event).
-4. **4.4 Application design:** MVP structure (APP-MOD, APP-PRS, APP-VIEW, APP-KEY, APP-MWC), UI contexts (full-screen playback, number entry, service list, EPG, key dialog, info overlay) as a state diagram/transition table matching the key bindings of 1.5.1, how the model reacts to `session_state`, `stream_info`, `mw_status`; the timers (300 ms zap debounce, 500 ms seek accumulation, 2 s number commit, 5 s info, 2 s volume indicator).
-5. **4.5 Producer–consumer and buffers:** threads (HAL tuner receive thread with demux / descrambler / filter callbacks, PAL event loop, AL worker, head-end session threads), queues with capacity and overflow policy (RX → AL queue, validation hold buffer, HLS segment window of at most 10 files), who allocates and who frees each buffer.
-6. **4.6 UML sequence diagrams** (Mermaid `sequenceDiagram`). Implementation level (real command / event / function names from Section 3) for APP and AL; demonstration level for PAL and operator side. At least:
-   - start-up: service list (+ MW not reachable variant),
-   - PSI acquisition through the DTV SDK (`tune` → `open_filter` PID 0 → `start_filter` → section data → PAT → PMT filter → PMT), in the style of the table-parsing flow of Lecture 6,
-   - live zap of a clear service (play → /start → RTP → PAT/PMT → stream_info → first HLS segment → playing → hls.js loads `/hls/<n>/index.m3u8`),
-   - archive from the EPG (get_epg → ENTER on an available event → play with T),
-   - protected service: no key → key dialog → **incorrect key → key_rejected → correct key → playback from the same T** (the core M15 scenario),
-   - rapid zapping / "latest request wins" (old session stopped, late events ignored),
-   - `←`/`→` steps and return to live,
-   - head-end lost during playback (keepalive `SESSION_NOT_FOUND` → `error` → "No signal" → new `play` works),
-   - one operator-side sequence (head-end `/start`: archive time → file position → PAT/PMT → paced RTP).
-7. **4.7 Operator-side design:** PCR index and time → position mapping, pacing algorithm, loop handling, packaging-tool algorithm (exact byte ranges per D-04), EPG generation formula on the 600 s cycle.
-8. **4.8 Error handling:** a matrix error → where detected → layer → reaction → message to the viewer → recovery, covering every error code of 3.10 and every negative case of the user stories.
+Done (2026-11-22), see §7.
 
 ### 8.2 Section 5 — Verification plan
 
@@ -185,6 +179,8 @@ Planned subsections (adjust if needed, but cover everything the guidelines requi
 - Independent verification: `ffprobe -show_programs -show_streams` for content and output streams, burned-in time code for rewind accuracy, `tcpdump` on loopback plus a search for the key bytes (NFR-08), log evidence.
 - Define the test data set: the four content files with SHA-256 checksums, the concrete correct keys of `svc-3` and `svc-4`, one incorrect key, expected EPG.
 - Define the 5-minute defense demo scenario (ordered steps that show every mandatory feature, the incorrect key and the correct key with resume from T).
+- Use the design IDs as test anchors: transitions T-01 … T-32 (state-machine tests), errors ER-01 … ER-40 (negative tests), buffers B1 … B10 (overflow / bound tests), sequence diagrams 4.6.x (integration tests).
+- Include the additional test content file with **non-default PIDs** promised in Section 4.7.2 (evidence that PIDs come from PAT/PMT, HLR-12).
 
 ### 8.3 After the specification
 
@@ -207,7 +203,7 @@ Consistency check used during the session (run from the repository root; prints 
 python3 - <<'EOF'
 import re
 s = open('SPECIFICATION.md').read()
-for p in ['REQ', 'NFR', 'HLR', 'US', 'D', 'EXT']:
+for p in ['REQ', 'NFR', 'HLR', 'US', 'D', 'EXT', 'T', 'ER']:
     # user stories are defined by their bold heading; all other IDs by the first cell of a table row
     defined = (re.findall(rf'^\*\*({p}-\d+) ', s, re.M) if p == 'US'
                else re.findall(rf'^\| ({p}-\d+) \|', s, re.M))
