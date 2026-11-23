@@ -39,6 +39,20 @@ public:
         return n;
     }
 
+    // Number of lines whose message contains `text`.
+    std::size_t count_containing(const std::string& text) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::size_t n = 0;
+        for (const Line& line : lines_) {
+            if (line.message.find(text) != std::string::npos) {
+                ++n;
+            }
+        }
+        return n;
+    }
+
+    bool contains(const std::string& text) const { return count_containing(text) != 0; }
+
 private:
     mutable std::mutex mutex_;
     std::vector<Line> lines_;
