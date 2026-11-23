@@ -5,6 +5,7 @@
 
 #include <string>
 
+#include "ffmpeg_fixtures.hpp"
 #include "psi.hpp"
 #include "psi_builder.hpp"
 
@@ -13,15 +14,8 @@ namespace {
 using al::PsiError;
 using testutil::Bytes;
 
-// Sections written by FFmpeg 6.1.1 (independent tool, Section 5.1.7 rule 5), taken from the TS of
-//   ffmpeg -f lavfi -i testsrc2=size=320x240:rate=25 -f lavfi -i sine=frequency=440:sample_rate=48000
-//          -t 1 -c:v libx264 -g 25 -c:a aac -f mpegts -mpegts_service_id 1 t.ts
-// ffprobe -show_programs on that file: program_num=1, pmt_pid=4096, pcr_pid=256, streams 0x100, 0x101.
-const Bytes kFfmpegPat = {0x00, 0xb0, 0x0d, 0x00, 0x01, 0xc1, 0x00, 0x00,
-                          0x00, 0x01, 0xf0, 0x00, 0x2a, 0xb1, 0x04, 0xb2};
-const Bytes kFfmpegPmt = {0x02, 0xb0, 0x17, 0x00, 0x01, 0xc1, 0x00, 0x00, 0xe1, 0x00,
-                          0xf0, 0x00, 0x1b, 0xe1, 0x00, 0xf0, 0x00, 0x0f, 0xe1, 0x01,
-                          0xf0, 0x00, 0x2f, 0x44, 0xb9, 0x9b};
+using testutil::kFfmpegPat;
+using testutil::kFfmpegPmt;
 
 std::uint32_t crc_of(const std::string& text) {
     return al::crc32_mpeg2(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
