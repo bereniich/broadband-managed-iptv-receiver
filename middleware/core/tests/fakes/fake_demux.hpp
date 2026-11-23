@@ -46,6 +46,8 @@ public:
         bool started;
     };
     std::vector<OpenFilter> open_filters() const;
+    // open_filter returns 0 while set (error path "filter cannot be created", Section 3.9.2).
+    void fail_open_filters(bool fail) { fail_open_ = fail; }
     bool has_key(std::uint16_t pid) const { return keys_.count(pid) != 0; }
 
 private:
@@ -66,6 +68,7 @@ private:
     std::map<std::uint16_t, std::array<std::uint8_t, 16>> keys_;
     std::map<std::uint16_t, std::uint8_t> last_cc_;
     Stats stats_{0, 0, 0};
+    bool fail_open_ = false;
 };
 
 }  // namespace fakes

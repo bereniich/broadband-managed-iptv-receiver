@@ -3,6 +3,7 @@
 # the IF-INT-04 headers; dtvcore_tests links only dtvcore and GoogleTest (TST-159).
 add_library(dtvcore STATIC
     psi.cpp
+    psi_parser.cpp
     task_queue.cpp
 )
 target_include_directories(dtvcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -16,6 +17,7 @@ add_executable(dtvcore_tests
     tests/fakes_platform_test.cpp
     tests/fakes_test.cpp
     tests/psi_builder.cpp
+    tests/psi_parser_test.cpp
     tests/psi_test.cpp
     tests/task_queue_test.cpp
     tests/ts_builder.cpp
