@@ -2,12 +2,15 @@
 # Portability rule R3 / NFR-09: dtvcore uses only the C++17 standard library, nlohmann/json and
 # the IF-INT-04 headers; dtvcore_tests links only dtvcore and GoogleTest (TST-159).
 add_library(dtvcore STATIC
+    psi.cpp
     task_queue.cpp
 )
 target_include_directories(dtvcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(dtvcore PUBLIC pal_api nlohmann_json)
 
 add_executable(dtvcore_tests
+    tests/psi_builder.cpp
+    tests/psi_test.cpp
     tests/task_queue_test.cpp
 )
 target_include_directories(dtvcore_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
