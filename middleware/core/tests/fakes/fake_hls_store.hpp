@@ -6,8 +6,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "fakes/call_log.hpp"
@@ -30,6 +32,8 @@ public:
     void fail_open(bool fail) { fail_open_ = fail; }
     // write_file returns false from the k-th call on (counted over all sessions, k >= 1).
     void fail_writes_from(std::size_t k) { fail_writes_from_ = k; }
+    // Called after every successful write_file, with the file already in place (TST-123).
+    void set_write_hook(std::function<void(SessionId, const std::string&)> hook) { write_hook_ = std::move(hook); }
 
     std::filesystem::path root() const { return root_; }
     std::filesystem::path dir(SessionId session) const { return root_ / std::to_string(session); }
@@ -50,6 +54,7 @@ private:
     std::size_t fail_writes_from_ = 0;   // 0 = never
     std::size_t write_calls_ = 0;
     std::map<SessionId, std::size_t> max_segments_;
+    std::function<void(SessionId, const std::string&)> write_hook_;
 };
 
 }  // namespace fakes

@@ -71,7 +71,9 @@ bool FakeHlsStore::write_file(SessionId session, const std::string& name, const 
     std::error_code ec;
     fs::rename(temporary, target, ec);
     update_max(session);
-    return !ec;
+    if (ec) return false;
+    if (write_hook_) write_hook_(session, name);
+    return true;
 }
 
 bool FakeHlsStore::remove_file(SessionId session, const std::string& name) {
