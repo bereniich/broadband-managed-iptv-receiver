@@ -10,6 +10,7 @@
 #include <random>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -72,22 +73,21 @@ void expect_error(const test::HttpReply& reply, int status, const std::string& c
 }
 
 // OTT MW server in-process: the repository's server/config.json and content/services.json,
-// a fixed clock (`now_`), Mongoose on an ephemeral port of 127.0.0.1.
-class MwServerFixture : public ::testing::Test {
-protected:
-    void SetUp() override {
+// a fixed clock (`now_`), Mongoose on an ephemeral port of 127.0.0.1. Usable as a fixture (TST-319)
+// and as a plain object (TST-318, whose suite also has the head-end test without a fixture).
+class MwServerUnderTest {
+public:
+    MwServerUnderTest() {
         const srv::ServerConfig config = srv::load_server_config(kRepo + "/server/config.json");
         api_ = std::make_unique<srv::MwApi>(srv::load_services(kRepo + "/" + config.services_file),
                                             config.headend_url,
                                             [this] { return srv::from_unix_seconds(now_.load()); });
         server_ = std::make_unique<srv::HttpServer>([this](const srv::HttpRequest& r) { return api_->handle(r); });
         std::string error;
-        ASSERT_TRUE(server_->start(0, &error)) << error;
+        if (!server_->start(0, &error)) throw std::runtime_error(error);
     }
 
-    void TearDown() override {
-        if (server_) server_->stop();
-    }
+    ~MwServerUnderTest() { server_->stop(); }
 
     json get_ok(const std::string& target) {
         const test::HttpReply reply = test::http_get(server_->port(), target);
@@ -104,7 +104,8 @@ protected:
     std::unique_ptr<srv::HttpServer> server_;
 };
 
-using Tst318 = MwServerFixture;
+class MwServerFixture : public ::testing::Test, public MwServerUnderTest {};
+
 using Tst319 = MwServerFixture;
 
 std::string epg_target(int64_t from, int64_t to, const std::string& extra = "") {
@@ -296,7 +297,8 @@ TEST_F(Tst319, EpgCycleFormulaOfSection477) {  // fixture unused; one fixture pe
 // TST-318 — invalid requests to the OTT MW server (REQ-58, ER-18); head-end part in step 3
 // ---------------------------------------------------------------------------------------------
 
-TEST_F(Tst318, MwServerAnswersIn01WithErrorObjectsAndKeepsRunning) {
+TEST(Tst318, MwServerAnswersIn01WithErrorObjectsAndKeepsRunning) {
+    MwServerUnderTest mw;
     std::mt19937 rng(318);
     std::string random_bytes(4096, '\0');
     for (auto& c : random_bytes) c = static_cast<char>(rng() & 0xFF);
@@ -312,20 +314,20 @@ TEST_F(Tst318, MwServerAnswersIn01WithErrorObjectsAndKeepsRunning) {
     };
 
     // IN-01: truncated JSON body; body of 4 096 random bytes; unknown path; method DELETE.
-    expect_400_or_404(test::http_exchange(port(), post("/api/v1/services", "{\"service_id\": ")), "truncated JSON");
-    expect_400_or_404(test::http_exchange(port(), post("/api/v1/epg", random_bytes)), "random body");
-    expect_400_or_404(test::http_get(port(), "/api/v1/xyz"), "unknown path");
-    expect_400_or_404(test::http_exchange(port(), "DELETE /api/v1/services HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
+    expect_400_or_404(test::http_exchange(mw.port(), post("/api/v1/services", "{\"service_id\": ")), "truncated JSON");
+    expect_400_or_404(test::http_exchange(mw.port(), post("/api/v1/epg", random_bytes)), "random body");
+    expect_400_or_404(test::http_get(mw.port(), "/api/v1/xyz"), "unknown path");
+    expect_400_or_404(test::http_exchange(mw.port(), "DELETE /api/v1/services HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"),
                       "DELETE");
 
     // Not HTTP at all: Mongoose drops the connection; the server keeps running.
-    test::http_exchange(port(), random_bytes);
+    test::http_exchange(mw.port(), random_bytes);
     // Unknown paths outside /api/v1 and an invalid percent-encoding.
-    expect_400_or_404(test::http_get(port(), "/"), "root");
-    expect_400_or_404(test::http_get(port(), "/api/v1/services%zz"), "bad encoding");
+    expect_400_or_404(test::http_get(mw.port(), "/"), "root");
+    expect_400_or_404(test::http_get(mw.port(), "/api/v1/services%zz"), "bad encoding");
 
     // The server still answers a valid request.
-    const json list = get_ok("/api/v1/services");
+    const json list = mw.get_ok("/api/v1/services");
     ASSERT_TRUE(list.is_object());
     EXPECT_EQ(list["services"].size(), 4u);
 }
