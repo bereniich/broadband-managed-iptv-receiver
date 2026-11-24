@@ -8,6 +8,7 @@ add_library(dtvcore STATIC
     key_store.cpp
     psi.cpp
     psi_parser.cpp
+    service_manager.cpp
     task_queue.cpp
     ts_packet.cpp
 )
@@ -28,6 +29,7 @@ add_executable(dtvcore_tests
     tests/psi_builder.cpp
     tests/psi_parser_test.cpp
     tests/psi_test.cpp
+    tests/service_manager_test.cpp
     tests/task_queue_test.cpp
     tests/ts_builder.cpp
 )
