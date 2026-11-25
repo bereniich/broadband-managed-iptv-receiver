@@ -61,11 +61,13 @@ export function sessionState(session, serviceId, state, extra = {}) {
   };
 }
 
-export function createFixture({ nowS = T0 } = {}) {
+// `createPlayer(model, clock)` replaces the fake player view, e.g. by the real one with fakes of
+// hls.js and the <video> element.
+export function createFixture({ nowS = T0, createPlayer = () => new FakePlayer() } = {}) {
   const clock = new FakeClock(nowS * 1000);
   const model = createModel();
   const mwc = new FakeMiddlewareClient(model);
-  const player = new FakePlayer();
+  const player = createPlayer(model, clock);
   const app = createPresenters({ model, mwc, clock, player });
 
   const fx = {

@@ -182,6 +182,85 @@ export class FakeWebSocket {
   }
 }
 
+// Fake of the global `Hls` of hls.js 1.7.4 (Section 5.3.5, TST-418): records configuration,
+// attachMedia, loadSource, destroy and recoverMediaError; the test emits hls.js events.
+export class FakeHls {
+  static Events = { MANIFEST_PARSED: 'hlsManifestParsed', FRAG_CHANGED: 'hlsFragChanged', ERROR: 'hlsError' };
+  static ErrorTypes = { MEDIA_ERROR: 'mediaError', NETWORK_ERROR: 'networkError', OTHER_ERROR: 'otherError' };
+  static supported = true;
+  static instances = [];
+
+  static isSupported() { return FakeHls.supported; }
+
+  static reset() {
+    FakeHls.instances = [];
+    FakeHls.supported = true;
+  }
+
+  static last() { return FakeHls.instances[FakeHls.instances.length - 1]; }
+
+  constructor(config) {
+    this.config = config;
+    this.handlers = new Map();
+    this.media = null;
+    this.source = null;
+    this.destroyed = false;
+    this.recoveries = 0;
+    FakeHls.instances.push(this);
+  }
+
+  on(event, handler) {
+    if (!this.handlers.has(event)) this.handlers.set(event, []);
+    this.handlers.get(event).push(handler);
+  }
+
+  attachMedia(media) { this.media = media; }
+  loadSource(url) { this.source = url; }
+  recoverMediaError() { this.recoveries += 1; }
+  destroy() {
+    this.destroyed = true;
+    this.handlers.clear();          // hls.js removes its listeners on destroy()
+  }
+
+  emit(event, data = {}) {
+    for (const handler of this.handlers.get(event) || []) handler(event, data);
+  }
+}
+
+// Fake <video> element: event listeners, play(), volume, muted, requestVideoFrameCallback.
+export class FakeVideo {
+  constructor() {
+    this.listeners = new Map();
+    this.plays = 0;
+    this.volume = 1;
+    this.muted = false;
+    this.frameCallbacks = [];
+  }
+
+  addEventListener(name, listener) {
+    if (!this.listeners.has(name)) this.listeners.set(name, []);
+    this.listeners.get(name).push(listener);
+  }
+
+  dispatch(name) {
+    for (const listener of this.listeners.get(name) || []) listener({ type: name });
+  }
+
+  play() {
+    this.plays += 1;
+    return Promise.resolve();
+  }
+
+  requestVideoFrameCallback(callback) { this.frameCallbacks.push(callback); }
+
+  // The first video frame is presented.
+  presentFrame() {
+    const callbacks = this.frameCallbacks;
+    this.frameCallbacks = [];
+    for (const callback of callbacks) callback(0, {});
+  }
+}
+
 // Fake player view (Section 5.3.1): records create / destroy / URL / options / volume.
 export class FakePlayer {
   constructor() {

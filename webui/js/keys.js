@@ -31,12 +31,14 @@ export function mapKey(event) {
 
 // Creates the keydown handler. `presenters` maps a context (model.js Context) to an object
 // with onKey(key). For every mapped key preventDefault() is called, so that the browser
-// does not scroll or navigate; unmapped keys are ignored.
-export function createKeyRouter(model, presenters) {
+// does not scroll or navigate; unmapped keys are ignored. `onMapped(key)` is called for every
+// mapped key before the presenter (DIAG mark `key`, Section 5.1.8).
+export function createKeyRouter(model, presenters, onMapped = () => {}) {
   return function onKeyDown(event) {
     const key = mapKey(event);
     if (key === null) return;
     event.preventDefault();
+    onMapped(key);
     const presenter = presenters[model.state.context];
     if (presenter) presenter.onKey(key);
   };

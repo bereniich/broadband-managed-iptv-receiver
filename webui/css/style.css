@@ -92,3 +92,56 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
 }
+
+#position {
+  right: 48px;
+  bottom: 300px;
+}
+
+.title {
+  font-weight: bold;
+}
+
+/* Highlight of the selected entry in the service list and the EPG. */
+.selected {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+}
+
+#service-list .item {
+  padding: 4px 12px;
+}
+
+#key-dialog .mask {
+  letter-spacing: 4px;
+  min-height: 1.3em;
+}
+
+/* EPG: one row per service, the events of the row side by side (time axis), details below. */
+.epg-row {
+  display: flex;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.epg-row.selected-row .epg-service {
+  font-weight: bold;
+}
+
+.epg-service {
+  flex: 0 0 300px;
+}
+
+.epg-event {
+  flex: 1 1 0;
+  padding: 0 8px;
+  font-size: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.epg-details {
+  margin-top: 24px;
+}
