@@ -79,6 +79,9 @@ public:
     std::uint64_t play(const std::string& service_id, StartPoint start);
     // T-02: ends the current session (state stopped).
     void stop();
+    // EV-SETKEY: the key of `service_id` is already stored by AL-DSC. Step 7d: T-25 (the key is used at
+    // the next PMT of that service); the restarts of T-24 and T-33 follow in step 11.
+    void set_key(const std::string& service_id);
 
     bool has_session() const { return s_.has_value(); }
     SessionState state() const;               // data of the current session (Idle before the first)

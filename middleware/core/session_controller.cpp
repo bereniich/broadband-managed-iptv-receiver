@@ -113,6 +113,21 @@ void SessionController::stop() {
     set_state(State::Stopped);
 }
 
+void SessionController::set_key(const std::string& service_id) {
+    const bool same = s_ && s_->service_id == service_id;
+    if (same && s_->state == State::KeyRequired) {
+        not_handled("EV-SETKEY in key_required");   // T-24, step 11
+        return;
+    }
+    if (same && in({State::Starting, State::WaitingStream, State::ValidatingKey}) && s_->stream &&
+        s_->protection != Decision::Clear) {
+        not_handled("EV-SETKEY after EV-PMT");   // T-33, step 11
+        return;
+    }
+    // T-25: nothing besides the storing by AL-DSC; the key is used at the next PMT of that service.
+    log(pal::LogLevel::Debug, "key of " + service_id + " stored, used at the next PMT of the service");
+}
+
 // ---------------------------------------------------------------- S1 continuation, S2, T-03, S4
 
 void SessionController::begin(std::uint64_t g) {
