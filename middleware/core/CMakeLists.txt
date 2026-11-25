@@ -2,6 +2,7 @@
 # Portability rule R3 / NFR-09: dtvcore uses only the C++17 standard library, nlohmann/json and
 # the IF-INT-04 headers; dtvcore_tests links only dtvcore and GoogleTest (TST-159).
 add_library(dtvcore STATIC
+    headend_client.cpp
     hls_packager.cpp
     hls_playlist.cpp
     key_manager.cpp
@@ -22,6 +23,7 @@ add_executable(dtvcore_tests
     tests/fakes/reference_d04.cpp
     tests/fakes_platform_test.cpp
     tests/fakes_test.cpp
+    tests/headend_client_test.cpp
     tests/hls_packager_test.cpp
     tests/hls_test.cpp
     tests/key_manager_test.cpp
