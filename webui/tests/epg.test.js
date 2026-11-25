@@ -63,6 +63,18 @@ test('TST-411 No information for a service without events and for all services w
   for (const id of ['svc-1', 'svc-2', 'svc-3', 'svc-4']) assert.equal(epgEvents(fx.state, id), null, id);
 });
 
+test('TST-411 a get_epg cancelled by a connection loss keeps the last EPG (only an error response means "No information")', async () => {
+  const { fx, answer } = await epgOpen();
+  await answer();
+  const loaded = fx.state.epg;
+  fx.press('ESC', 'E');                                          // a new get_epg is pending
+  assert.ok(fx.mwc.pendingCall('get_epg'));
+  fx.mwc.setConnected(false);
+  await fx.advance(0);
+  assert.equal(fx.state.epg, loaded);
+  assert.notEqual(epgEvents(fx.state, 'svc-3'), null);
+});
+
 test('TST-412 ENTER plays available events from their start, refuses unavailable ones, ignores future ones', async () => {
   const { fx, answer } = await epgOpen();
   await answer();

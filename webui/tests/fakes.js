@@ -1,6 +1,7 @@
 // Test fakes of the Web application (Sections 4.4.6, 5.3.1): a fake clock that advances the
 // timers of Section 4.4.5 explicitly, and a fake middleware client with scripted responses
 // and events (JSON of Section 3.6). Not part of the code under test.
+import { CONNECTION_CLOSED } from '../js/mwc.js';
 
 // Clock object with the interface passed to the presenters: now(), setTimeout, clearTimeout.
 export class FakeClock {
@@ -73,7 +74,7 @@ export class FakeMiddlewareClient {
     this.model.update({ connected });
     for (const handler of this.connectionHandlers) handler(connected);
     if (!connected) {
-      for (const id of [...this.pending.keys()]) this.fail(id, 'CONNECTION_CLOSED');
+      for (const id of [...this.pending.keys()]) this.fail(id, CONNECTION_CLOSED);
     }
   }
 
@@ -84,15 +85,20 @@ export class FakeMiddlewareClient {
     return open[open.length - 1];
   }
 
+  // As APP-MWC: without a connection the call is rejected at once and nothing is sent.
   call(name, params = {}) {
     const id = this.nextId++;
-    this.calls.push({ id, name, params });
     let completion;
     const promise = new Promise((resolve, reject) => {
       completion = { resolve, reject };
     });
-    this.pending.set(id, completion);
     promise.id = id;
+    if (!this.model.state.connected) {
+      completion.reject({ code: CONNECTION_CLOSED, message: 'not connected' });
+      return promise;
+    }
+    this.calls.push({ id, name, params });
+    this.pending.set(id, completion);
     return promise;
   }
 
@@ -129,6 +135,50 @@ export class FakeMiddlewareClient {
     if (!completion) throw new Error(`no pending call with id ${id}`);
     this.pending.delete(id);
     return completion;
+  }
+}
+
+// Fake browser WebSocket for the tests of APP-MWC. Every constructed socket is recorded in
+// FakeWebSocket.instances; the test opens, closes and feeds it.
+export class FakeWebSocket {
+  static instances = [];
+
+  constructor(url) {
+    this.url = url;
+    this.sent = [];              // parsed JSON of every sent text frame
+    this.closed = false;
+    FakeWebSocket.instances.push(this);
+  }
+
+  send(text) {
+    this.sent.push(JSON.parse(text));
+  }
+
+  // Test side: connection opened / closed (also a failed attempt) / text frame received.
+  open() { this.onopen(); }
+  close() {
+    this.closed = true;
+    this.onclose();
+  }
+  receive(message) { this.onmessage({ data: typeof message === 'string' ? message : JSON.stringify(message) }); }
+
+  // The last sent command with the given name.
+  command(name) {
+    const commands = this.sent.filter((m) => m.name === name);
+    if (commands.length === 0) throw new Error(`no ${name} command sent`);
+    return commands[commands.length - 1];
+  }
+
+  respond(name, result) {
+    this.receive({ type: 'response', id: this.command(name).id, ok: true, result });
+  }
+
+  static reset() {
+    FakeWebSocket.instances = [];
+  }
+
+  static last() {
+    return FakeWebSocket.instances[FakeWebSocket.instances.length - 1];
   }
 }
 

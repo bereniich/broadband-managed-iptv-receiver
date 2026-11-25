@@ -3,6 +3,7 @@
 import {
   Context, Text, epgEvents, epgMark, eventAt, nowSeconds, playbackPosition,
 } from '../model.js';
+import { CONNECTION_CLOSED } from '../mwc.js';
 
 export const EPG_RANGE_S = 7200;
 export const EPG_REFRESH_MS = 300000;
@@ -21,7 +22,11 @@ export function createEpgPresenter(app) {
         model.update({ epg: { from, to, serverTime: result.server_time, services: result.services } });
         reselectIfOpen();
       },
-      () => model.update({ epg: null }),   // "No information" for all services (REQ-36)
+      (error) => {
+        // An error response: "No information" for all services (REQ-36). A call cancelled by a
+        // connection loss got no response, so the last EPG stays valid.
+        if (error.code !== CONNECTION_CLOSED) model.update({ epg: null });
+      },
     );
   }
 
