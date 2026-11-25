@@ -82,6 +82,10 @@ public:
     // EV-SETKEY: the key of `service_id` is already stored by AL-DSC. Step 7d: T-25 (the key is used at
     // the next PMT of that service); the restarts of T-24 and T-33 follow in step 11.
     void set_key(const std::string& service_id);
+    // T-31 (EV-SHUTDOWN, Section 4.2.5): RELEASE of an active session, state stopped. `done` is called
+    // on the worker when the /stop response has arrived or its timeout has expired, at once when no
+    // head-end session exists.
+    void shutdown(std::function<void()> done);
 
     bool has_session() const { return s_.has_value(); }
     SessionState state() const;               // data of the current session (Idle before the first)
@@ -133,7 +137,9 @@ private:
     void on_timer(std::uint64_t generation, Timer timer);
     void on_keepalive(std::uint64_t generation, const HeadendError& error);
 
-    void release();                                             // rule 4
+    // Rule 4. `on_stopped` is called with the result of POST /stop; returns false (and does not call it)
+    // when no head-end session exists.
+    bool release(HeadendClient::Done on_stopped = nullptr);
     void start_timer(Timer timer, int seconds);
     void cancel_timer(Timer timer);
     std::optional<pal::IClock::TimerId>& timer_slot(Timer timer);

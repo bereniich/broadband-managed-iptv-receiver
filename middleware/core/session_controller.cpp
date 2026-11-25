@@ -113,6 +113,21 @@ void SessionController::stop() {
     set_state(State::Stopped);
 }
 
+void SessionController::shutdown(std::function<void()> done) {
+    if (!in({State::Starting, State::WaitingStream, State::ValidatingKey, State::Playing, State::NoSignal})) {
+        if (done) done();   // key_required, error, stopped and idle own no resources (rule 5)
+        return;
+    }
+    log(pal::LogLevel::Info, "shutdown");
+    // T-31: RELEASE including POST /stop; AL-MAIN waits for its response or its timeout.
+    const bool stop_sent = release([this, done](const HeadendError& e) {
+        logger_.log(pal::LogLevel::Info, kModule, std::string("shutdown: /stop ") + (e.ok() ? "answered" : e.code));
+        if (done) done();
+    });
+    set_state(State::Stopped);
+    if (!stop_sent && done) done();
+}
+
 void SessionController::set_key(const std::string& service_id) {
     const bool same = s_ && s_->service_id == service_id;
     if (same && s_->state == State::KeyRequired) {
@@ -316,7 +331,7 @@ void SessionController::on_keepalive(std::uint64_t g, const HeadendError& error)
 
 // ---------------------------------------------------------------- RELEASE (rule 4)
 
-void SessionController::release() {
+bool SessionController::release(HeadendClient::Done on_stopped) {
     // 1. Timers and pending HTTP requests of the attempt.
     for (Timer t : {Timer::Keepalive, Timer::NoData, Timer::Deadline}) cancel_timer(t);
     if (info_token_) services_.cancel(*info_token_);
@@ -333,9 +348,11 @@ void SessionController::release() {
     output_.close();
     // 5. POST /stop for the head-end session; its response is only logged.
     if (s_ && !s_->headend_session_id.empty()) {
-        headend_.stop(s_->stream_control_url, s_->headend_session_id, nullptr);
+        headend_.stop(s_->stream_control_url, s_->headend_session_id, std::move(on_stopped));
         s_->headend_session_id.clear();
+        return true;
     }
+    return false;
 }
 
 // ---------------------------------------------------------------- helpers

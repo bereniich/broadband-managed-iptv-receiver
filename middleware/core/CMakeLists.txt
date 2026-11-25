@@ -7,6 +7,8 @@ add_library(dtvcore STATIC
     hls_playlist.cpp
     key_manager.cpp
     key_store.cpp
+    middleware.cpp
+    middleware_config.cpp
     psi.cpp
     psi_parser.cpp
     service_manager.cpp
@@ -30,6 +32,7 @@ add_executable(dtvcore_tests
     tests/hls_test.cpp
     tests/key_manager_test.cpp
     tests/key_test.cpp
+    tests/middleware_test.cpp
     tests/psi_builder.cpp
     tests/psi_parser_test.cpp
     tests/psi_test.cpp
@@ -44,6 +47,8 @@ target_include_directories(dtvcore_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tes
 target_compile_definitions(dtvcore_tests PRIVATE
     M15_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../content"
     # Default responses of the fake HTTP client (JSON examples of Section 3; checked by TST-533).
-    M15_FAKE_RESPONSES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fakes/responses")
+    M15_FAKE_RESPONSES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fakes/responses"
+    # The shipped configuration of AL-MAIN (TST-158).
+    M15_MIDDLEWARE_JSON="${CMAKE_CURRENT_SOURCE_DIR}/../main/middleware.json")
 target_link_libraries(dtvcore_tests PRIVATE dtvcore GTest::gtest_main)
 gtest_discover_tests(dtvcore_tests)
