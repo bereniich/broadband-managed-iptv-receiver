@@ -52,13 +52,36 @@ export class FakeClock {
 }
 
 // Fake of APP-MWC. call() returns a Promise with the request id in its property `id`;
-// the test completes it with respond() or fail(). Events are delivered with emit().
+// the test completes it with respond() or fail(). Events are delivered with emit(), connection
+// changes with setConnected(): as APP-MWC, it sets model.connected (Section 4.4.2), then calls
+// the connection handlers; a closed connection rejects all pending calls (REQ-57).
 export class FakeMiddlewareClient {
-  constructor() {
+  constructor(model) {
+    this.model = model;
     this.nextId = 1;
     this.calls = [];             // [{id, name, params}] in the order of the calls
     this.pending = new Map();    // id -> {resolve, reject}
     this.handlers = new Map();   // event name -> [handler]
+    this.connectionHandlers = [];
+  }
+
+  onConnection(handler) {
+    this.connectionHandlers.push(handler);
+  }
+
+  setConnected(connected) {
+    this.model.update({ connected });
+    for (const handler of this.connectionHandlers) handler(connected);
+    if (!connected) {
+      for (const id of [...this.pending.keys()]) this.fail(id, 'CONNECTION_CLOSED');
+    }
+  }
+
+  // The last call with the given command name that has not been completed yet.
+  pendingCall(name) {
+    const open = this.calls.filter((c) => c.name === name && this.pending.has(c.id));
+    if (open.length === 0) throw new Error(`no pending ${name} call`);
+    return open[open.length - 1];
   }
 
   call(name, params = {}) {
@@ -106,6 +129,34 @@ export class FakeMiddlewareClient {
     if (!completion) throw new Error(`no pending call with id ${id}`);
     this.pending.delete(id);
     return completion;
+  }
+}
+
+// Fake player view (Section 5.3.1): records create / destroy / URL / options / volume.
+export class FakePlayer {
+  constructor() {
+    this.log = [];               // ['create', url, options] | ['destroy'] | ['volume', v, muted]
+    this.current = null;         // {url, options} of the existing player
+    this.volume = null;          // last {volume, muted} applied to the <video> element
+  }
+
+  create(url, options) {
+    this.log.push(['create', url, options]);
+    this.current = { url, options };
+  }
+
+  destroy() {
+    this.log.push(['destroy']);
+    this.current = null;
+  }
+
+  setVolume(volume, muted) {
+    this.log.push(['volume', volume, muted]);
+    this.volume = { volume, muted };
+  }
+
+  count(kind) {
+    return this.log.filter((entry) => entry[0] === kind).length;
   }
 }
 
