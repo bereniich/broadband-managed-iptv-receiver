@@ -137,9 +137,6 @@ html, body {
   flex: 1 1 0;
   padding: 0 8px;
   font-size: 28px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .epg-details {

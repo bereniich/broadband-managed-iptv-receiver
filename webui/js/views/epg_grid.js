@@ -6,7 +6,7 @@ import { formatHHMM } from './format.js';
 import { line, render } from './dom.js';
 
 const EVENTS_BEFORE = 1;   // events shown before and after the selected time in every row
-const EVENTS_AFTER = 2;
+const EVENTS_AFTER = 1;
 
 export function createEpgGridView(element, model, clock) {
   function selectedEvent(state) {
