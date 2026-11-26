@@ -3760,10 +3760,10 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 19 | 0 | 81 | 0 |
+| Unit | 100 | 40 | 0 | 59 | 1 |
 | Integration | 22 | 0 | 0 | 22 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 19 | 0 | 149 | 0 |
+| **Total** | 168 | 40 | 0 | 127 | 1 |
 
 Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
@@ -3821,41 +3821,41 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-157** | Unit | not executed | — | — | — | — |
 | **TST-158** | Unit | not executed | — | — | — | — |
 | **TST-159** | Unit | not executed | — | — | — | — |
-| **TST-201** | Unit | not executed | — | — | — | — |
-| **TST-202** | Unit | not executed | — | — | — | — |
-| **TST-203** | Unit | not executed | — | — | — | — |
+| **TST-201** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: 100 datagrams of 7 TS packets → `Locked` once, at the first datagram; 700 TS packets in order; `rtp_packets` = 100 | `tests/evidence/TST-201/2026-11-26_2fda787a_testout.txt` |
+| **TST-202** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: IN-08 (V = 1, PT 96, other SSRC, payloads of 100 / 0 / 8 × 188 bytes, 1 000 random datagrams) plus P / X / CSRC set and wrong lengths: no TS packet delivered, no `Locked`, `rtp_invalid` = number sent; then one valid datagram → `Locked` | `tests/evidence/TST-202/2026-11-26_2fda787a_testout.txt` |
+| **TST-203** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: IN-09 → `rtp_lost` = 10 for 10 omitted; wrap 65 530 → 5 → `rtp_lost` = 0; a late datagram is not counted; gaps right at the wrap are counted | `tests/evidence/TST-203/2026-11-26_2fda787a_testout.txt` |
 | **TST-204** | Unit | not executed | — | — | — | — |
-| **TST-205** | Unit | not executed | — | — | — | — |
-| **TST-206** | Unit | not executed | — | — | — | — |
-| **TST-211** | Unit | not executed | — | — | — | — |
-| **TST-212** | Unit | not executed | — | — | — | — |
-| **TST-213** | Unit | not executed | — | — | — | — |
-| **TST-214** | Unit | not executed | — | — | — | — |
-| **TST-215** | Unit | not executed | — | — | — | — |
+| **TST-205** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: no callback after `untune()` returned at 380 datagrams/s (also with a 2 ms callback, 5 rounds); after `tune` with S2 only S2 delivered, the 50 datagrams of S counted in `rtp_invalid`; `tune` / `untune` from a tuner callback refused | `tests/evidence/TST-205/2026-11-26_2fda787a_testout.txt` |
+| **TST-206** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: port occupied → `tune` returns `false`, error logged; free port → `SO_RCVBUF` requested 1 048 576, effective value logged (2 097 152 on this machine) | `tests/evidence/TST-206/2026-11-26_2fda787a_testout.txt` |
+| **TST-211** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: sync byte `0x46` not delivered (`sync_errors` = 1); 2 CC discontinuities counted in `cc_errors` and the packets delivered; `scrambled` = bits ≠ `'00'` | `tests/evidence/TST-211/2026-11-26_2fda787a_testout.txt` |
+| **TST-212** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: each TS filter received only its PID, one 188-byte packet per callback; both filters on 256 received every packet; nothing delivered for PIDs without a filter | `tests/evidence/TST-212/2026-11-26_2fda787a_testout.txt` |
+| **TST-213** | Unit | passed | 2026-11-26 | 2fda787a | 3 test functions passed: helper CRC = `0x0376E6E7`; sections delivered byte for byte (pointer_field, over 3 packets, two in one packet, `table_id` filter); a 4 098-byte section (the largest possible; 5 000 bytes cannot exist, issue #8) discarded and counted, assembly restarted at the next unit start | `tests/evidence/TST-213/2026-11-26_2fda787a_testout.txt` |
+| **TST-214** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: 1 000 open / close cycles with a feeding thread at full speed → 0 callbacks after `close_filter` returned; demux calls from a filter callback refused instead of deadlocking | `tests/evidence/TST-214/2026-11-26_2fda787a_testout.txt` |
+| **TST-215** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: FIPS-197 C.1 → `00112233445566778899aabbccddeeff`; SP 800-38A F.2.2 → the four plaintext blocks (also decrypted in place) | `tests/evidence/TST-215/2026-11-26_2fda787a_testout.txt` |
 | **TST-216** | Unit | not executed | — | — | — | — |
 | **TST-217** | Unit | not executed | — | — | — | — |
-| **TST-221** | Unit | not executed | — | — | — | — |
+| **TST-221** | Unit | passed | 2026-11-26 | 2fda787a | 6 test functions passed: `open_filter` with PID 8192 → 0; no data before `start_filter`, none after `stop_filter` / `close_filter`; `set_key` → decrypted data (bits `'00'`, `scrambled` = true) on PIDs 256 and 257, `clear_keys` removes it; statistics equal the HAL counters | `tests/evidence/TST-221/2026-11-26_2fda787a_testout.txt` |
 | **TST-222** | Unit | not executed | — | — | — | — |
-| **TST-223** | Unit | not executed | — | — | — | — |
-| **TST-224** | Unit | not executed | — | — | — | — |
+| **TST-223** | Unit | passed | 2026-11-26 | 2fda787a | 5 test functions passed: `/` → `index.html`; `/css/style.css`; playlist with `application/vnd.apple.mpegurl` and `Cache-Control: no-cache`; segment with `video/mp2t`; `/hls/9/x.ts` → 404; WebSocket: text frames both ways, `broadcast` to 2 clients, binary frame of random bytes ignored, abrupt disconnect reported, process kept running; listening on 127.0.0.1 only | `tests/evidence/TST-223/2026-11-26_2fda787a_testout.txt` |
+| **TST-224** | Unit | passed | 2026-11-26 | 2fda787a | 4 test functions passed: `hls_dir` empty after `Platform::start()`; the reader saw only a missing or the complete 1 000 000-byte file during 100 writes; `remove_file` of a missing file → `true`; directory removed by `close_session` | `tests/evidence/TST-224/2026-11-26_2fda787a_testout.txt` |
 | **TST-225** | Unit | not executed | — | — | — | — |
-| **TST-226** | Unit | not executed | — | — | — | — |
-| **TST-301** | Unit | not executed | — | — | — | — |
+| **TST-226** | Unit | passed | 2026-11-26 | 2fda787a | 3 test functions passed: with tuner, TS filter, timers, a WebSocket client and a pending HTTP request active, 0 callbacks of any interface after `Platform::stop()` returned | `tests/evidence/TST-226/2026-11-26_2fda787a_testout.txt` |
+| **TST-301** | Unit | not verifiable | 2026-11-26 | 2fda787a | 1 test function passed for the 7 clear files (all properties of Section 5.2.1). The encrypted files cannot be probed: D-04 encrypts PES headers and SPS, so `ffprobe` cannot read profile, resolution or duration (issue #5, agreed change for 1.2); their clear inputs were checked instead | `tests/evidence/TST-301/2026-11-26_2fda787a_testout.txt` |
 | **TST-302** | Unit | not executed | — | — | — | — |
-| **TST-303** | Unit | not executed | — | — | — | — |
+| **TST-303** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed (20 PNG frames written); inspection: all 20 frames (4 services × 0, 123, 299, 300, 599 s) show the service name, Program 1 up to 299 s and Program 2 from 300 s, and `00:00`, `02:03`, `04:59`, `05:00`, `09:59` | `tests/evidence/TST-303/2026-11-26_2fda787a_testout.txt`, `tests/evidence/TST-303/2026-11-26_2fda787a_photo.png` |
 | **TST-304** | Unit | not executed | — | — | — | — |
 | **TST-305** | Unit | not executed | — | — | — | — |
 | **TST-306** | Unit | not executed | — | — | — | — |
 | **TST-311** | Unit | not executed | — | — | — | — |
-| **TST-312** | Unit | not executed | — | — | — | — |
-| **TST-313** | Unit | not executed | — | — | — | — |
+| **TST-312** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: archive window boundaries of Section 4.7.4 as expected | `tests/evidence/TST-312/2026-11-26_2fda787a_testout.txt` |
+| **TST-313** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: missing or invalid content files refused with a message naming service and file; `headend` exits with code 1 naming them (ER-38) | `tests/evidence/TST-313/2026-11-26_2fda787a_testout.txt` |
 | **TST-314** | Unit | not executed | — | — | — | — |
 | **TST-315** | Unit | not executed | — | — | — | — |
-| **TST-316** | Unit | not executed | — | — | — | — |
+| **TST-316** | Unit | passed | 2026-11-26 | 2fda787a | 4 test functions passed: examples of Section 3.3; IN-02 → 400 `INVALID_REQUEST`, IN-03 → `OUT_OF_ARCHIVE`, `FUTURE_TIME`, 404 `SERVICE_NOT_FOUND`; a new `/start` for the same endpoint replaces the session; 10 concurrent starts for one endpoint leave exactly 1 session | `tests/evidence/TST-316/2026-11-26_2fda787a_testout.txt` |
 | **TST-317** | Unit | not executed | — | — | — | — |
-| **TST-318** | Unit | not executed | — | — | — | — |
-| **TST-319** | Unit | not executed | — | — | — | — |
-| **TST-320** | Unit | not executed | — | — | — | — |
+| **TST-318** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: IN-01 to `mw_server` and `headend` → 400 / 404 with an error object; both kept answering | `tests/evidence/TST-318/2026-11-26_2fda787a_testout.txt` |
+| **TST-319** | Unit | passed | 2026-11-26 | 2fda787a | 5 test functions passed: values of Section 5.2.3; worked example of Section 5.2.4 for all 4 services (49 events); at a multiple of 300: 48 events, 25 in the archive; IN-04 → `INVALID_RANGE` / `SERVICE_NOT_FOUND`; cycle formula | `tests/evidence/TST-319/2026-11-26_2fda787a_testout.txt` |
+| **TST-320** | Unit | passed | 2026-11-26 | 2fda787a | 5 test functions passed: configuration readers (defaults, invalid values); `mw_server` and `headend` exit with code 1 naming the file for invalid configurations; with a valid configuration both start, log in the NFR-13 format and stop on SIGTERM with code 0 | `tests/evidence/TST-320/2026-11-26_2fda787a_testout.txt` |
 | **TST-401** | Unit | passed | 2026-11-26 | 3ca56b53 | 6 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-401/2026-11-26_3ca56b53_testout.txt` |
 | **TST-402** | Unit | passed | 2026-11-26 | 3ca56b53 | 5 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-402/2026-11-26_3ca56b53_testout.txt` |
 | **TST-403** | Unit | passed | 2026-11-26 | 3ca56b53 | 2 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-403/2026-11-26_3ca56b53_testout.txt` |

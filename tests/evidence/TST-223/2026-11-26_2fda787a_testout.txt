@@ -1,0 +1,12 @@
+TESTOUT of TST-223 (Section 5.1.6)
+Command: build/bin/pal_tests --gtest_filter='Tst223.*' --gtest_color=no
+Commit: 2fda787a (main)  Date: 2026-11-26  Environment: Ubuntu 24.04.5 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-223:
+[       OK ] Tst223.WebFilesAndHlsFilesWithTheirContentTypes (7 ms)
+[       OK ] Tst223.MissingWebFilesGive404AndAPortInUseFailsTheStart (5 ms)
+[       OK ] Tst223.WebSocketTextFramesBroadcastBinaryFrameAndAbruptDisconnect (354 ms)
+[       OK ] Tst223.ServerAndTunerListenOn127001Only (4 ms)
+[       OK ] Tst223.InvalidInputOnTheHttpPortDoesNotStopTheServer (5 ms)
+[==========] 5 tests from 1 test suite ran. (376 ms total)
+[  PASSED  ] 5 tests.
