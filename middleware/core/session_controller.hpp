@@ -2,7 +2,9 @@
 // REQ-59). The only module that knows the order of the steps S1 – S12 of a session; it drives AL-SVC,
 // AL-HEC, AL-PSI, AL-DSC and AL-OUT and the tuner, and executes the transition table of Section 4.3.4.
 // Step 7c implements the clear path (T-01, T-02, T-03, T-06, T-09, T-11, T-12, T-18, T-19, T-26,
-// T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream.
+// T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream;
+// step 9a the errors of a start (T-04, T-05, T-07, T-08, T-13, T-21, T-30 and a demux filter that
+// cannot be opened, issue #24).
 // Every callback carries the generation of its attempt; tasks of another generation are discarded
 // before the table is consulted (rule 2). Runs on the AL worker.
 #pragma once
@@ -132,6 +134,8 @@ private:
     void on_tuner(std::uint64_t generation, pal::TunerStatus status);
     void on_pat(std::uint64_t generation, std::uint16_t pmt_pid);
     void on_pmt(std::uint64_t generation, const StreamDescription& stream);
+    void on_pmt_novideo(std::uint64_t generation);              // T-13
+    void on_output_error(std::uint64_t generation);             // T-30
     void on_video1(std::uint64_t generation, al::Protection protection);
     void on_first_segment(std::uint64_t generation);
     void on_timer(std::uint64_t generation, Timer timer);
@@ -140,6 +144,8 @@ private:
     // Rule 4. `on_stopped` is called with the result of POST /stop; returns false (and does not call it)
     // when no head-end session exists.
     bool release(HeadendClient::Done on_stopped = nullptr);
+    // RELEASE, then state error with `code` (Section 3.10); `message` is the text for logs.
+    void fail(const std::string& code, const std::string& message);
     void start_timer(Timer timer, int seconds);
     void cancel_timer(Timer timer);
     std::optional<pal::IClock::TimerId>& timer_slot(Timer timer);

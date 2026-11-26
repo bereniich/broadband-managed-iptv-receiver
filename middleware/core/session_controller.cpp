@@ -8,6 +8,9 @@ namespace al {
 namespace {
 
 constexpr const char* kModule = "AL-SES";
+constexpr const char* kFutureTime = "FUTURE_TIME";            // Section 3.10
+constexpr const char* kInvalidStream = "INVALID_STREAM";      // Section 3.10
+constexpr const char* kReceiverError = "RECEIVER_ERROR";      // Section 3.10
 
 std::string start_text(const StartPoint& start) { return start.live() ? "live" : std::to_string(*start.time); }
 
@@ -158,7 +161,9 @@ void SessionController::on_info(std::uint64_t g, MwError error, const ServiceInf
     info_token_.reset();
     if (s_->state != State::Starting) return;
     if (error != MwError::None || info == nullptr) {
-        not_handled(std::string("EV-INFO-ERR ") + to_code(error));   // T-05, step 9
+        // T-05: MW_UNREACHABLE or SERVICE_NOT_FOUND.
+        const MwError code = error != MwError::None ? error : MwError::MwUnreachable;
+        fail(to_code(code), "no service info for " + s_->service_id);
         return;
     }
     // T-03, S3: tuning, the HLS directory and the PAT filter before the start request.
@@ -166,22 +171,23 @@ void SessionController::on_info(std::uint64_t g, MwError error, const ServiceInf
     tuner_.untune();
     tuned_generation_.store(g);
     if (!tuner_.tune(pal::TuneParams{config_.rtp_port, s_->ssrc})) {
-        not_handled("EV-TUNE-FAIL");   // T-04, step 9
+        fail(kReceiverError, "the tuner cannot open UDP port " + std::to_string(config_.rtp_port));   // T-04
         return;
     }
+    // The handlers below run inside AL-OUT and AL-PSI, which allow close() from a handler.
     HlsPackager::Events out;
     out.on_first_segment = [this, g] { on_first_segment(g); };
-    out.on_error = [this] { not_handled("EV-OUT-ERR"); };   // T-30, step 9
+    out.on_error = [this, g] { on_output_error(g); };
     if (!output_.open(s_->number, g, out)) {
-        not_handled("EV-OUT-ERR");
+        fail(kReceiverError, "the HLS directory cannot be created");   // T-30 (EV-OUT-ERR at S3)
         return;
     }
     PsiParser::Events psi;
     psi.on_pat = [this, g](std::uint16_t pid) { on_pat(g, pid); };
     psi.on_pmt = [this, g](const StreamDescription& d) { on_pmt(g, d); };
-    psi.on_pmt_novideo = [this] { not_handled("EV-PMT-NOVIDEO"); };   // T-13, step 9
+    psi.on_pmt_novideo = [this, g] { on_pmt_novideo(g); };
     if (!psi_.start_pat(s_->number, g, psi)) {
-        not_handled("PAT filter not opened");   // P2 (RECEIVER_ERROR), step 9
+        fail(kReceiverError, "the PAT section filter cannot be opened");   // issue #24
         return;
     }
     send_start();
@@ -206,7 +212,15 @@ void SessionController::on_start(std::uint64_t g, const HeadendError& error, con
     start_token_.reset();
     if (s_->state != State::Starting) return;
     if (!error.ok() || result == nullptr) {
-        not_handled("EV-START-ERR " + error.code);   // T-07, T-08, step 9
+        if (error.code == kFutureTime && !s_->start.live()) {
+            // T-07: the start point becomes "live" and /start is sent again (Section 3.10, ER-11).
+            log(pal::LogLevel::Info, "start " + start_text(s_->start) + " answered FUTURE_TIME, retry as live");
+            s_->start = StartPoint{};
+            send_start();
+            return;
+        }
+        // T-08: the code of the head-end, HEADEND_UNREACHABLE on a transport failure (AL-HEC).
+        fail(error.ok() ? kHeadendUnreachable : error.code, "POST /start failed: " + error.message);
         return;
     }
     s_->headend_session_id = result->session_id;
@@ -249,7 +263,19 @@ void SessionController::on_tuner(std::uint64_t g, pal::TunerStatus status) {
 
 void SessionController::on_pat(std::uint64_t g, std::uint16_t pmt_pid) {
     if (!current(g) || !in({State::Starting, State::WaitingStream})) return;
-    if (!psi_.start_pmt(pmt_pid)) not_handled("PMT filter not opened");   // P2, step 9
+    if (!psi_.start_pmt(pmt_pid)) {
+        fail(kReceiverError, "the PMT section filter cannot be opened");   // issue #24
+    }
+}
+
+void SessionController::on_pmt_novideo(std::uint64_t g) {
+    if (!current(g) || !in({State::Starting, State::WaitingStream})) return;
+    fail(kInvalidStream, "the PMT lists no video stream (stream_type 0x1B)");   // T-13 (REQ-17)
+}
+
+void SessionController::on_output_error(std::uint64_t g) {
+    if (!current(g) || !in({State::Starting, State::WaitingStream, State::ValidatingKey, State::Playing})) return;
+    fail(kReceiverError, "an HLS file cannot be written");   // T-30
 }
 
 void SessionController::on_pmt(std::uint64_t g, const StreamDescription& stream) {
@@ -269,7 +295,9 @@ void SessionController::on_pmt(std::uint64_t g, const StreamDescription& stream)
         if (current(g)) output_.feed(packet);   // S11
     };
     // REQ-49: the stored key is set before the TS filters are started (inside KeyManager::start).
-    if (!keys_.start(s_->number, g, s_->service_id, stream, dsc)) not_handled("TS filters not opened");   // P2
+    if (!keys_.start(s_->number, g, s_->service_id, stream, dsc)) {
+        fail(kReceiverError, "the TS filters cannot be opened");   // issue #24
+    }
 }
 
 // ---------------------------------------------------------------- T-19, T-18
@@ -315,6 +343,12 @@ void SessionController::on_timer(std::uint64_t g, Timer timer) {
                                               [this, g](const HeadendError& e) { on_keepalive(g, e); });
         return;
     }
+    if (timer == Timer::Deadline && in({State::Starting, State::WaitingStream, State::ValidatingKey})) {
+        // T-21: no protection or key decision 3 s after the first Locked; the stored key is kept.
+        fail(kInvalidStream, "no protection or key decision within " + std::to_string(config_.stream_deadline_s) +
+                                 " s after Locked");
+        return;
+    }
     not_handled(timer == Timer::NoData ? "EV-T-NODATA" : timer == Timer::Deadline ? "EV-T-DEADLINE" : "EV-T-KA");
 }
 
@@ -353,6 +387,13 @@ bool SessionController::release(HeadendClient::Done on_stopped) {
         return true;
     }
     return false;
+}
+
+void SessionController::fail(const std::string& code, const std::string& message) {
+    release();
+    s_->error = HeadendError{code, message};
+    log(pal::LogLevel::Warn, "error " + code + ": " + message);
+    set_state(State::Error);
 }
 
 // ---------------------------------------------------------------- helpers
