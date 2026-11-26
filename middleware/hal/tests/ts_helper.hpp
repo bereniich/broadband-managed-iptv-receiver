@@ -8,6 +8,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <openssl/evp.h>
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -119,6 +121,58 @@ inline std::vector<Packet> packetize(std::uint16_t pid, std::uint8_t& cc, const 
         first = false;
     }
     return out;
+}
+
+// ---- D-04 (test side) --------------------------------------------------------------------------
+
+// 16 key bytes from 32 hexadecimal characters (Section 5.2.2).
+inline std::array<std::uint8_t, 16> key_from_hex(const char* hex) {
+    std::array<std::uint8_t, 16> key{};
+    for (std::size_t i = 0; i < 16; ++i) {
+        auto nibble = [](char c) { return static_cast<std::uint8_t>(c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10); };
+        key[i] = static_cast<std::uint8_t>((nibble(hex[2 * i]) << 4) | nibble(hex[2 * i + 1]));
+    }
+    return key;
+}
+
+// Encrypts one packet as the packaging tool does (Section 4.7.3), written here independently of the
+// code under test: payload offset o (4, or 5 + adaptation_field_length), n = the largest multiple of
+// 16 bytes, AES-128-CBC with IV 0 and a new context per packet, no padding; bits '10' if n > 0.
+// Returns false (packet unchanged) if nothing is encrypted.
+inline bool d04_encrypt(Packet& p, const std::array<std::uint8_t, 16>& key) {
+    const int afc = (p[3] >> 4) & 0x3;
+    if (afc == 0x0 || afc == 0x2) return false;
+    const std::size_t o = afc == 0x1 ? 4 : 5 + p[4];
+    if (o >= 188) return false;
+    const std::size_t n = (188 - o) / 16 * 16;
+    if (n == 0) return false;
+    const std::uint8_t iv[16] = {};
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    std::uint8_t out[188];
+    int l1 = 0, l2 = 0;
+    EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), nullptr, key.data(), iv);
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    EVP_EncryptUpdate(ctx, out, &l1, p.data() + o, static_cast<int>(n));
+    EVP_EncryptFinal_ex(ctx, out + l1, &l2);
+    EVP_CIPHER_CTX_free(ctx);
+    std::copy(out, out + n, p.begin() + static_cast<std::ptrdiff_t>(o));
+    p[3] = static_cast<std::uint8_t>((p[3] & 0x3F) | 0x80);
+    return true;
+}
+
+// A packet with an adaptation field of `af_length` bytes (stuffing) and a payload of 184 - 1 - af_length
+// bytes filled from `seed`.
+inline Packet packet_with_adaptation(std::uint16_t pid, std::uint8_t cc, std::uint8_t af_length, std::uint8_t seed) {
+    Packet p;
+    p.fill(0xFF);
+    p[0] = 0x47;
+    p[1] = static_cast<std::uint8_t>((pid >> 8) & 0x1F);
+    p[2] = static_cast<std::uint8_t>(pid & 0xFF);
+    p[3] = static_cast<std::uint8_t>(0x30 | (cc & 0x0F));
+    p[4] = af_length;
+    if (af_length > 0) p[5] = 0x00;  // flags
+    for (std::size_t i = 5 + af_length; i < 188; ++i) p[i] = static_cast<std::uint8_t>(seed + i * 7);
+    return p;
 }
 
 // ---- RTP --------------------------------------------------------------------------------------

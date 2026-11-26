@@ -80,6 +80,18 @@ void Demux::remove_filter(FilterId id) {
     filters_.erase(it);
 }
 
+bool Demux::set_key(const std::uint16_t* pids, std::size_t pid_count, const std::uint8_t key[16]) {
+    if (refuse_in_callback("set_key")) return false;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return descrambler_.set_key(pids, pid_count, key);
+}
+
+void Demux::clear_keys() {
+    if (refuse_in_callback("clear_keys")) return;
+    std::lock_guard<std::mutex> lock(mutex_);
+    descrambler_.clear_keys();
+}
+
 Demux::Stats Demux::stats() const {
     if (tls_delivering == this) return stats_;  // the mutex is already held by this thread
     std::lock_guard<std::mutex> lock(mutex_);
@@ -133,6 +145,9 @@ void Demux::feed_packet(std::uint8_t* p) {
 
     const auto& list = by_pid_[pid];
     if (list.empty()) return;
+    // HAL-DSC before delivery, in place: every filter of the PID gets the same decrypted bytes.
+    // `scrambling` keeps the bits as received, so TS filters still report scrambled = true.
+    if (scrambling == 0x2 && descrambler_.descramble(p)) ++stats_.packets_descrambled;
     int payload_start = 4;
     if (has_adaptation) payload_start = 5 + p[4];
     const bool payload_ok = has_payload && payload_start < static_cast<int>(kTsPacketSize);
