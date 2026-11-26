@@ -1,0 +1,20 @@
+{
+  "server_time": 1795000000,
+  "from": 1794993000,
+  "to": 1795003000,
+  "services": [
+    {
+      "service_id": "svc-3",
+      "events": [
+        {
+          "event_id": "svc-3-1794999600",
+          "start": 1794999600,
+          "duration": 300,
+          "title": "Premium Morning",
+          "description": "First program of the protected demo service.",
+          "in_archive": true
+        }
+      ]
+    }
+  ]
+}

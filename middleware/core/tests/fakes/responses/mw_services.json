@@ -1,0 +1,8 @@
+{
+  "services": [
+    { "service_id": "svc-1", "number": 1, "name": "Demo One",   "protected": false },
+    { "service_id": "svc-2", "number": 2, "name": "Demo Two",   "protected": false },
+    { "service_id": "svc-3", "number": 3, "name": "Premium One", "protected": true },
+    { "service_id": "svc-4", "number": 4, "name": "Premium Two", "protected": true }
+  ]
+}
