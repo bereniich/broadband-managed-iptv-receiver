@@ -9,9 +9,11 @@ Usage (Python standard library only, NFR-11), from any directory:
   tests/integration/run_pal.py [--tests 501,502,503,504,511,512] [--config server/config.json]
                                [--build build] [--evidence]
 
-  --evidence  writes TESTOUT, FFPROBE and LOG files to tests/evidence/<TST-id>/ with the date and the
-              commit (Section 5.1.6). Refused for a modified working tree or a configuration other than
-              server/config.json, because such a run is not evidence (Section 5.1.7).
+  --evidence  writes the evidence of the column "Evidence" of Section 5.4.3 to tests/evidence/<TST-id>/,
+              named with the date and the commit (Section 5.1.6): TESTOUT for every test, FFPROBE (TST-502,
+              511), LOG excerpts of the head-end and OTT MW server logs (TST-501, 504) and the PNG of the
+              PHOTO checks (TST-503, 512). Refused for a modified working tree or a configuration other
+              than server/config.json, because such a run is not evidence (Section 5.1.7).
 
 Tests:
   TST-501  services and EPG against 5.2.3 / 5.2.4 (the contract check needs tests/tools/contract_check.py)
@@ -21,7 +23,11 @@ Tests:
   TST-504  expiry without keepalive (20 s) and 60 s with a keepalive every 5 s
   TST-511  pal_dump 10 s with svc-1 live: PAT / PMT, statistics, ffprobe, decode check
   TST-512  pal_dump with K3, KX and no key on svc-3 (needs svc-3.enc.ts from package_ts)
-TST-503 and TST-512 end with "passed pending the PHOTO inspection": a person checks the PNG they name.
+TST-503 and TST-512 end with "passed pending the PHOTO inspection", which is not a status of Section
+5.1.5: a person checks the PNG, and only then the test is recorded as "passed" in Section 5.9.
+
+Expected values come from the specification (Sections 5.2.3, 5.2.4, 3.3), never from a file that the
+servers read (Section 5.1.7, rule 5).
 
 Needs: build/bin/headend, build/bin/mw_server, build/bin/pal_dump, ffmpeg / ffprobe, the content of
 Section 5.2.1, free ports 8080, 8081 and 5004. The exit code is 0 if every executed test passed.
@@ -31,6 +37,7 @@ import argparse
 import datetime
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -45,6 +52,24 @@ TOOLS = os.path.join(REPO, 'tests', 'tools')
 SSRC = 1180331842
 RTP_PORT = 5004
 K3 = '3A7F1C9E5B2D8046A1E3C5079B4D6F28'  # Section 5.2.2
+
+# Section 5.2.3: service_id, number, name, protected, description, titles of program 1 and 2.
+SERVICES = [
+    ('svc-1', 1, 'Demo One', False, 'Clear demo service', 'News at Nine', 'Weather Today'),
+    ('svc-2', 2, 'Demo Two', False, 'Clear demo service', 'Science Hour', 'Nature Walk'),
+    ('svc-3', 3, 'Premium One', True, 'Protected demo service', 'Premium Morning', 'Premium Evening'),
+    ('svc-4', 4, 'Premium Two', True, 'Protected demo service', 'Cinema Classic', 'Late Movie'),
+]
+STREAM_CONTROL_URL = 'http://127.0.0.1:8081/api/v1/stream'
+ARCHIVE_WINDOW_S = 7200
+
+
+def expected_program(service, start):
+    """Title and description of the event that starts at `start` (Sections 5.2.3, 5.2.4)."""
+    sid, _, _, _, description, title1, title2 = service
+    first = start % 600 < 300
+    return (title1 if first else title2,
+            '%s program of the %s.' % ('First' if first else 'Second', description.lower()))
 KX = '00112233445566778899AABBCCDDEEFF'
 
 
@@ -55,6 +80,8 @@ def now_ms():
 class Result:
     def __init__(self, tst):
         self.tst, self.lines, self.failures, self.status, self.files = tst, [], 0, None, {}
+        self.log = ''      # LOG evidence: excerpts of the server logs written during the test
+        self.photo = None  # PHOTO evidence: PNG for the inspection
 
     def check(self, ok, text):
         self.lines.append('%s %s' % ('PASS' if ok else 'FAIL', text))
@@ -144,29 +171,39 @@ class Session:
 
 def tst501(ctx):
     res = Result(501)
-    cfg = json.load(open(os.path.join(REPO, 'content', 'services.json')))
-    expected = sorted(cfg['services'], key=lambda s: s['number'])
     status, body = http_json('GET', ctx.mw + '/services')
     listed = body.get('services', []) if isinstance(body, dict) else []
-    res.check(status == 200 and [s.get('service_id') for s in listed] == [s['service_id'] for s in expected],
-              'GET /services: the services of 5.2.3 in number order')
-    for s in expected:
-        status, info = http_json('GET', ctx.mw + '/services/' + s['service_id'])
-        ok = status == 200 and all(info.get(k) == s[k] for k in ('service_id', 'number', 'name', 'protected'))
-        res.check(ok, 'GET /services/%s: number, name, protected of 5.2.3' % s['service_id'])
+    res.check(status == 200 and [(e.get('service_id'), e.get('number'), e.get('name'), e.get('protected'))
+                                 for e in listed] == [sv[:4] for sv in SERVICES],
+              'GET /services: the four services of 5.2.3 in number order (service_id, number, name, protected)')
+    for sv in SERVICES:
+        status, info = http_json('GET', ctx.mw + '/services/' + sv[0])
+        expected = {'service_id': sv[0], 'number': sv[1], 'name': sv[2], 'protected': sv[3], 'description': sv[4],
+                    'stream_control_url': STREAM_CONTROL_URL, 'archive_window_s': ARCHIVE_WINDOW_S}
+        wrong = {k: info.get(k) for k, v in expected.items() if not isinstance(info, dict) or info.get(k) != v}
+        res.check(status == 200 and not wrong, 'GET /services/%s: fields of 5.2.3%s' % (sv[0], ' (wrong: %s)' % wrong if wrong else ''))
     t0 = int(time.time())
     status, epg = http_json('GET', ctx.mw + '/epg?from=%d&to=%d' % (t0 - 7200, t0 + 7200))
     t = epg.get('server_time', 0) if isinstance(epg, dict) else 0
-    for svc in (epg.get('services', []) if isinstance(epg, dict) else []):
-        s = next((x for x in cfg['services'] if x['service_id'] == svc.get('service_id')), None)
-        events = svc.get('events', [])
-        starts = [e['start'] for e in events]
+    by_id = {svc.get('service_id'): svc for svc in (epg.get('services', []) if isinstance(epg, dict) else [])}
+    for sv in SERVICES:
+        events = by_id.get(sv[0], {}).get('events', [])
         expected_count = 48 if t0 % 300 == 0 else 49
-        ok = s is not None and len(events) == expected_count and all(b - a == 300 for a, b in zip(starts, starts[1:]))
-        ok = ok and all(e['title'] == s['programs'][0 if e['start'] % 600 < 300 else 1]['title'] for e in events)
-        ok = ok and all(e['in_archive'] == (t - 7200 <= e['start'] <= t) for e in events)
-        res.check(ok, 'EPG %s: %d events (expected %d), titles and in_archive of 5.2.4 at server_time %d'
-                  % (svc.get('service_id'), len(events), expected_count, t))
+        first = (t0 - 7200) - (t0 - 7200) % 300
+        problems = []
+        if len(events) != expected_count:
+            problems.append('%d events' % len(events))
+        for k, e in enumerate(events):
+            start = first + 300 * k
+            title, description = expected_program(sv, start)
+            want = {'event_id': '%s-%d' % (sv[0], start), 'start': start, 'duration': 300, 'title': title,
+                    'description': description, 'in_archive': t - 7200 <= start <= t}
+            bad = [key for key, v in want.items() if e.get(key) != v]
+            if bad:
+                problems.append('event %d: %s' % (k, ','.join(bad)))
+        res.check(status == 200 and not problems,
+                  'EPG %s: %d events, event_id, start, duration, title, description and in_archive of 5.2.3 / 5.2.4 '
+                  '(server_time %d)%s' % (sv[0], expected_count, t, ' -- ' + '; '.join(problems[:3]) if problems else ''))
     contract = os.path.join(TOOLS, 'contract_check.py')
     if not os.path.exists(contract):
         res.note('step 2 (contract checker) not executed: tests/tools/contract_check.py is not available')
@@ -187,9 +224,14 @@ def tst502(ctx):
     ts = os.path.join(ctx.tmp, 'tst502.ts')
     cap = capture(17.5, ts)
     time.sleep(0.3)
+    asked = int(time.time())
     status, body = ctx.session.start('svc-1')
-    res.check(status == 200 and body.get('ssrc') == SSRC and body.get('payload_type') == 33
-              and str(body.get('session_id', '')).startswith('hs-'), 'POST /start svc-1 live: response of 3.3.1')
+    start_time = body.get('start_time')
+    res.check(status == 200 and body.get('service_id') == 'svc-1' and body.get('ssrc') == SSRC
+              and body.get('payload_type') == 33 and str(body.get('session_id', '')).startswith('hs-')
+              and isinstance(start_time, int) and abs(start_time - asked) <= 2,
+              'POST /start svc-1 live: response of 3.3.1 (session_id, service_id, start_time %s for a request at %d, '
+              'ssrc, payload_type 33)' % (start_time, asked))
     time.sleep(15)
     status, _ = ctx.session.stop(body.get('session_id'))
     stop_ms = now_ms()
@@ -237,9 +279,7 @@ def tst503(ctx):
     res = Result(503)
     now = int(time.time())
     T = now - now % 300 - 300  # start of the previous event (Section 5.4.3)
-    cfg = json.load(open(os.path.join(REPO, 'content', 'services.json')))
-    svc1 = next(s for s in cfg['services'] if s['service_id'] == 'svc-1')
-    title = svc1['programs'][0 if T % 600 < 300 else 1]['title']
+    title, _ = expected_program(SERVICES[0], T)
     ts = os.path.join(ctx.tmp, 'tst503-svc1.ts')
     cap = capture(5.5, ts)
     time.sleep(0.3)
@@ -252,6 +292,7 @@ def tst503(ctx):
     res.check(os.path.exists(png), '2: first decodable frame written as PNG')
     res.note('PNG for inspection: time code %02d:%02d +/- 1 s and "%s": %s' % (T % 600 // 60, T % 60, title, png))
     ctx.photos[503] = png
+    res.photo = png
     ts3 = os.path.join(ctx.tmp, 'tst503-svc3.ts')
     cap = capture(5.5, ts3)
     time.sleep(0.3)
@@ -384,6 +425,7 @@ def tst512(ctx):
             subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', ts, '-frames:v', '1', png])
             res.note('PNG of the first key frame for inspection ("Premium One"): %s' % png)
             ctx.photos[512] = png
+            res.photo = png
         else:
             res.check(total > 0 and good == 0, '%s: 0 of %d video PES starts begin with 00 00 01 (%d)' % (name, total, good))
     if not res.failures:
@@ -435,6 +477,7 @@ def main():
     log_dir = config.get('log_dir', 'logs')
     log_dir = log_dir if os.path.isabs(log_dir) else os.path.join(REPO, log_dir)
     ctx.headend_log = os.path.join(log_dir, 'headend.log')
+    ctx.server_logs = [ctx.headend_log, os.path.join(log_dir, 'mw_server.log')]
     ctx.mw = 'http://127.0.0.1:%d/api/v1' % mw_port
     ctx.session = Session('http://127.0.0.1:%d/api/v1/stream' % he_port)
     ctx.photos = {}
@@ -455,7 +498,13 @@ def main():
             return 1
         for i in ids:
             print('== TST-%d' % i, flush=True)
+            offsets = {path: (os.path.getsize(path) if os.path.exists(path) else 0) for path in ctx.server_logs}
             res = TESTS[i](ctx)
+            for path, offset in offsets.items():  # LOG evidence: what the servers logged during the test
+                if os.path.exists(path):
+                    with open(path, errors='replace') as f:
+                        f.seek(offset)
+                        res.log += '--- %s ---\n%s' % (os.path.basename(path), f.read())
             if res.status is None:
                 res.status = 'passed' if not res.failures else 'failed'
             for line in res.lines:
@@ -486,6 +535,11 @@ def main():
             if 'ffprobe' in res.files:
                 with open(os.path.join(folder, '%s_%s_ffprobe.json' % (date, commit)), 'w') as f:
                     f.write(res.files['ffprobe'])
+            if res.tst in (501, 504):  # LOG
+                with open(os.path.join(folder, '%s_%s_log.txt' % (date, commit)), 'w') as f:
+                    f.write(res.log)
+            if res.photo and os.path.exists(res.photo):  # PHOTO, to be inspected before the result is recorded
+                shutil.copyfile(res.photo, os.path.join(folder, '%s_%s_photo.png' % (date, commit)))
         print('evidence written below tests/evidence/ (commit %s)' % commit)
     print('summary: ' + ', '.join('TST-%d %s' % (r.tst, r.status) for r in results))
     print('temporary files: %s' % ctx.tmp)
