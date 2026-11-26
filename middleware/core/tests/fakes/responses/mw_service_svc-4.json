@@ -1,0 +1,9 @@
+{
+  "service_id": "svc-4",
+  "number": 4,
+  "name": "Premium Two",
+  "protected": true,
+  "description": "Protected demo service",
+  "stream_control_url": "http://127.0.0.1:8081/api/v1/stream",
+  "archive_window_s": 7200
+}

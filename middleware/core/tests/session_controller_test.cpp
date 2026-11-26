@@ -1,0 +1,365 @@
+// AL-SES module tests (step 7c, clear path): TST-131, TST-132 (a), TST-135, TST-155 and the rest of
+// TST-105 / TST-106. All AL modules are real; the platform is the fakes of step 3, wired as AL-MAIN
+// wires the real one. Expected values: the transition table of Section 4.3.4, the steps of
+// Section 4.2.4, the JSON examples of Section 3 and the clamping rule of REQ-41 / Section 5.2.4.
+#include <gtest/gtest.h>
+
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <json.hpp>
+
+#include "content.hpp"
+#include "fakes/call_log.hpp"
+#include "fakes/fake_clock.hpp"
+#include "fakes/fake_demux.hpp"
+#include "fakes/fake_hls_store.hpp"
+#include "fakes/fake_http_client.hpp"
+#include "fakes/fake_logger.hpp"
+#include "fakes/fake_tuner.hpp"
+#include "headend_client.hpp"
+#include "hls_packager.hpp"
+#include "key_manager.hpp"
+#include "psi_parser.hpp"
+#include "service_manager.hpp"
+#include "session_controller.hpp"
+#include "stream_gen.hpp"
+#include "task_queue.hpp"
+
+namespace {
+
+using fakes::FakeHttpClient;
+using nlohmann::json;
+using testutil::Bytes;
+
+const std::string kMw = "http://127.0.0.1:8080/api/v1";
+const std::string kHe = "http://127.0.0.1:8081/api/v1/stream";
+constexpr std::int64_t kT = 1795000000;   // worked example of Section 5.2.4 (FakeClock default)
+
+struct Harness {
+    fakes::CallLog calls;
+    fakes::FakeClock clock;
+    fakes::FakeLogger logger;
+    al::TaskQueue queue{clock, logger};
+    fakes::FakeTuner tuner{&calls};
+    fakes::FakeDemux demux{&calls};
+    FakeHttpClient http{clock, &calls};
+    fakes::FakeHlsStore store{&calls};
+    al::ServiceManager svc{http, clock, logger, queue, al::ServiceManager::Config{}};
+    al::HeadendClient hec{http, logger, queue};
+    al::PsiParser psi{demux, logger, queue};
+    al::KeyManager dsc{demux, logger, queue};
+    al::HlsPackager out{store, logger};
+    std::vector<al::SessionState> states;
+    std::vector<std::pair<al::SessionState, al::StreamDescription>> infos;
+    al::SessionController ses{tuner, clock, logger, queue, svc, hec, psi, dsc, out,
+                              al::SessionController::Config{}, listener(), 42};
+    testutil::StreamGen gen;
+
+    al::SessionController::Listener listener() {
+        al::SessionController::Listener l;
+        l.on_session_state = [this](const al::SessionState& s) { states.push_back(s); };
+        l.on_stream_info = [this](const al::SessionState& s, const al::StreamDescription& d) { infos.emplace_back(s, d); };
+        return l;
+    }
+
+    void settle() {
+        for (int i = 0; i < 100000; ++i) {
+            clock.advance(0);
+            if (queue.run_pending() == 0) return;
+        }
+        ADD_FAILURE() << "queue does not settle";
+    }
+    void advance(std::int64_t ms) {
+        clock.advance(ms);
+        settle();
+    }
+
+    // One packet at a time through the fake demux, as the tuner thread delivers them.
+    void feed(const std::vector<Bytes>& packets) {
+        for (const Bytes& p : packets) {
+            demux.feed(p);
+            settle();
+        }
+    }
+    bool feed_content(const std::string& name, double seconds) {
+        const std::string path = testutil::content_path(name);
+        if (!testutil::content_exists(path)) return false;
+        const std::size_t count = testutil::packets_for_seconds(seconds);
+        for (std::size_t i = 0; i < count; ++i) {
+            if (demux.feed_file(path, i, 1) != 1) break;
+            settle();
+        }
+        return true;
+    }
+
+    // play -> waiting_stream -> Locked -> the stream until the first segment is listed (2 s).
+    void play_until_playing(const std::string& service = "svc-1") {
+        ses.play(service, {});
+        settle();
+        ASSERT_TRUE(tuner.emit(pal::TunerStatus::Locked));
+        settle();
+        feed(gen.frames(51));
+    }
+
+    std::vector<std::string> state_names(std::uint64_t session) const {
+        std::vector<std::string> names;
+        for (const auto& s : states) {
+            if (s.session == session) names.emplace_back(al::to_string(s.state));
+        }
+        return names;
+    }
+
+    json last_start_body() const {
+        const auto* r = http.last("POST", kHe + "/start");
+        return r ? json::parse(r->body) : json();
+    }
+};
+
+// Index of the first call-log entry starting with `prefix`, at or after `from`.
+std::size_t index_of(const std::vector<std::string>& entries, const std::string& prefix, std::size_t from = 0) {
+    for (std::size_t i = from; i < entries.size(); ++i) {
+        if (entries[i].rfind(prefix, 0) == 0) return i;
+    }
+    return entries.size();
+}
+
+// ---------------------------------------------------------------- TST-131
+
+TEST(Tst131, ClearLiveSynthetic) {
+    Harness h;
+    const std::uint64_t n = h.ses.play("svc-1", {});
+    EXPECT_EQ(n, 1u);
+    EXPECT_TRUE(h.states.empty());   // the response to play is sent before the first event of the session
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+
+    // T-03 / S3 before S4: untune, tune({5004, ssrc}), open_session(1), PAT filter, POST /start.
+    const std::vector<std::string> e = h.calls.entries();
+    const std::string tune = "tune 5004 " + std::to_string(h.ses.ssrc());
+    const std::size_t i_info = index_of(e, "GET " + kMw + "/services/svc-1");
+    const std::size_t i_untune = index_of(e, "untune", i_info);
+    const std::size_t i_tune = index_of(e, tune, i_untune);
+    const std::size_t i_open = index_of(e, "open_session 1", i_tune);
+    const std::size_t i_pat = index_of(e, "open_filter section pid=0 table_id=0", i_open);
+    const std::size_t i_start = index_of(e, "POST " + kHe + "/start", i_pat);
+    EXPECT_LT(i_start, e.size()) << "order: GET info, untune, tune, open_session, PAT filter, POST /start";
+    EXPECT_EQ(h.last_start_body()["ssrc"].get<std::uint32_t>(), h.ses.ssrc());
+    EXPECT_EQ(h.last_start_body()["start"], "live");
+
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    h.feed(h.gen.frames(51));   // first segment listed at the key frame of 1 s
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing"}));
+    const al::SessionState playing = h.states.back();
+    EXPECT_EQ(playing.is_protected, std::optional<bool>(false));
+    EXPECT_EQ(playing.start_time, std::optional<std::int64_t>(1794999600));   // he_start.json
+    EXPECT_EQ(playing.playing_since, std::optional<std::int64_t>(kT));
+    EXPECT_TRUE(playing.start.live());
+    EXPECT_TRUE(h.store.session_exists(1));
+
+    // T-26 / T-27: a keepalive every 5 s after EV-START-OK, answered 200.
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 0u);
+    h.advance(5000);
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 1u);
+    h.advance(5000);
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 2u);
+    EXPECT_EQ(json::parse(h.http.last("POST", kHe + "/keepalive")->body)["session_id"], "hs-000017");
+    EXPECT_EQ(h.ses.state().state, al::State::Playing);
+    EXPECT_TRUE(h.logger.contains("tuner Locked session=1 generation=1"));
+    EXPECT_TRUE(h.logger.contains("play service=svc-1 start=live session=1 generation=1"));
+}
+
+TEST(Tst131, PlayReplacesSession) {
+    Harness h;
+    h.play_until_playing("svc-1");
+    ASSERT_EQ(h.ses.state().state, al::State::Playing);
+    const std::uint32_t old_ssrc = h.ses.ssrc();
+
+    // Tasks of generation 1 still in the queue: a TS packet and a tuner status.
+    h.demux.feed(h.gen.frames(1)[0]);
+    h.tuner.emit(pal::TunerStatus::Unlocked);
+    h.calls.clear();
+
+    const std::uint64_t n = h.ses.play("svc-2", {});
+    EXPECT_EQ(n, 2u);
+    // RELEASE of session 1 (rule 4): filters closed, clear_keys, untune, close_session, POST /stop.
+    const std::vector<std::string> e = h.calls.entries();
+    const std::vector<std::string> expected = {"close_filter 1", "close_filter 2", "close_filter 3", "close_filter 4",
+                                               "close_filter 5", "close_filter 6", "clear_keys", "untune",
+                                               "close_session 1", "POST " + kHe + "/stop"};
+    ASSERT_GE(e.size(), expected.size());
+    EXPECT_EQ(std::vector<std::string>(e.begin(), e.begin() + static_cast<std::ptrdiff_t>(expected.size())), expected);
+    EXPECT_EQ(json::parse(h.http.last("POST", kHe + "/stop")->body)["session_id"], "hs-000017");
+    ASSERT_FALSE(h.states.empty());
+    EXPECT_EQ(h.states.back().session, 1u);   // stopped of session 1, before play returned
+    EXPECT_EQ(h.states.back().state, al::State::Stopped);
+    const std::size_t events_before = h.states.size();
+
+    h.settle();
+    // Session 2 starts with a new SSRC; the old tasks changed nothing and produced no event.
+    EXPECT_NE(h.ses.ssrc(), old_ssrc);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing", "stopped"}));
+    EXPECT_EQ(h.state_names(2), (std::vector<std::string>{"starting", "waiting_stream"}));
+    EXPECT_EQ(h.states.size(), events_before + 2);
+    EXPECT_NE(index_of(h.calls.entries(), "tune 5004 " + std::to_string(h.ses.ssrc())), h.calls.entries().size());
+    EXPECT_TRUE(h.logger.contains("discarded tuner status of generation 1"));
+    EXPECT_FALSE(h.store.session_exists(1));
+}
+
+TEST(Tst131, StopReleases) {
+    Harness h;
+    h.play_until_playing();
+    h.calls.clear();
+    h.ses.stop();   // T-02
+    EXPECT_EQ(h.states.back().state, al::State::Stopped);
+    EXPECT_NE(index_of(h.calls.entries(), "clear_keys"), h.calls.entries().size());
+    EXPECT_NE(index_of(h.calls.entries(), "POST " + kHe + "/stop"), h.calls.entries().size());
+    const std::size_t events = h.states.size();
+    h.ses.stop();   // nothing left in stopped
+    h.advance(20000);
+    EXPECT_EQ(h.states.size(), events);
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 0u);   // keepalive timer cancelled by RELEASE
+}
+
+TEST(Tst131, ClearLiveContent) {
+    Harness h;
+    h.ses.play("svc-1", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    // 5 s: with the PCR of FFmpeg content, the first segment is often 2 GOPs long (see the report of
+    // step 7c), so the first key frame plus 2 s of content are needed in the worst case.
+    if (!h.feed_content("svc-1.ts", 5.0)) return;
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing"}));
+}
+
+// ---------------------------------------------------------------- TST-132 (a)
+
+TEST(Tst132, DataBeforeStartResponse) {
+    Harness h;
+    h.http.script("POST", kHe + "/start", FakeHttpClient::Reply::file(200, "he_start.json").held());
+    h.ses.play("svc-1", {});
+    h.settle();
+    ASSERT_EQ(h.state_names(1), std::vector<std::string>{"starting"});
+    // The head-end sends before its response is processed: Locked, PSI, video, first segment.
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    h.feed(h.gen.frames(51));
+    EXPECT_EQ(h.state_names(1), std::vector<std::string>{"starting"});   // no state sent before the response
+    EXPECT_TRUE(h.store.session_exists(1));
+    h.advance(5000);   // 5 s after Locked: the stream deadline (3 s) was cancelled at EV-VIDEO1
+    EXPECT_FALSE(h.logger.contains("EV-T-DEADLINE"));
+
+    ASSERT_TRUE(h.http.release(h.http.last("POST", kHe + "/start")->id));
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "playing"}));   // directly playing
+    EXPECT_EQ(h.states.back().is_protected, std::optional<bool>(false));
+    EXPECT_EQ(h.states.back().start_time, std::optional<std::int64_t>(1794999600));
+}
+
+// ---------------------------------------------------------------- TST-135
+
+TEST(Tst135, Clamping) {
+    Harness h;   // clock at t = 1795000000
+    const struct {
+        std::optional<std::int64_t> requested;
+        std::optional<std::int64_t> expected;   // nullopt = "live"
+    } cases[] = {{kT - 8000, kT - 7195}, {kT - 7195, kT - 7195}, {kT - 60, kT - 60}, {kT, std::nullopt},
+                 {kT + 100, std::nullopt}};
+    for (const auto& c : cases) {
+        h.ses.play("svc-1", al::StartPoint{c.requested});
+        h.settle();
+        EXPECT_EQ(h.ses.state().start.time, c.expected);
+        const json start = h.last_start_body()["start"];
+        if (c.expected) {
+            EXPECT_EQ(start, *c.expected);
+        } else {
+            EXPECT_EQ(start, "live");
+        }
+        EXPECT_EQ(h.states.back().start.time, c.expected);
+    }
+}
+
+// ---------------------------------------------------------------- TST-155
+
+TEST(Tst155, ServiceInfoOnceForTwoPlays) {
+    Harness h;
+    h.ses.play("svc-1", {});
+    h.settle();
+    h.ses.play("svc-1", {});
+    h.settle();
+    EXPECT_EQ(h.http.count("GET", kMw + "/services/svc-1"), 1u);
+    EXPECT_EQ(h.http.count("POST", kHe + "/start"), 2u);
+}
+
+// ---------------------------------------------------------------- TST-105, TST-106 (complete)
+
+std::vector<std::string> filter_opens(const std::vector<std::string>& entries) {
+    std::vector<std::string> opens;
+    for (const std::string& e : entries) {
+        if (e.rfind("open_filter", 0) == 0) opens.push_back(e.substr(0, e.find(" ->")));
+    }
+    return opens;
+}
+
+TEST(Tst105, FullFilterOrder) {
+    Harness h;
+    h.play_until_playing();
+    const std::vector<std::string> expected = {"open_filter section pid=0 table_id=0",
+                                               "open_filter section pid=4096 table_id=2", "open_filter ts pid=0",
+                                               "open_filter ts pid=4096", "open_filter ts pid=256",
+                                               "open_filter ts pid=257"};
+    EXPECT_EQ(filter_opens(h.calls.entries()), expected);
+    h.feed(h.gen.frames(50));   // PAT / PMT repetitions: no further filter call
+    EXPECT_EQ(filter_opens(h.calls.entries()), expected);
+}
+
+TEST(Tst106, StreamInfoOncePerSession) {
+    Harness h;
+    h.play_until_playing();
+    h.feed(h.gen.frames(50));
+    ASSERT_EQ(h.infos.size(), 1u);
+    const al::StreamDescription& d = h.infos[0].second;
+    EXPECT_EQ(h.infos[0].first.session, 1u);
+    EXPECT_EQ(d.program_number, 1);
+    EXPECT_EQ(d.pmt_pid, 4096);
+    EXPECT_EQ(d.pcr_pid, 256);
+    EXPECT_EQ(d.video_pid, 256);
+    EXPECT_EQ(d.video_stream_type, 0x1B);
+    EXPECT_EQ(d.audio_pid, std::optional<std::uint16_t>(257));
+    EXPECT_EQ(d.audio_stream_type, std::optional<std::uint8_t>(0x0F));
+}
+
+struct ContentCase {
+    const char* file;
+    std::uint16_t program, pmt_pid, video, audio;
+};
+
+TEST(Tst105, FullFilterOrderContent) {
+    // Values of Section 5.2.1 (checked with ffprobe by TST-301).
+    for (const ContentCase& c : {ContentCase{"svc-1.ts", 1, 4096, 256, 257},
+                                 ContentCase{"test/svc-2.altpid.ts", 2, 768, 1025, 1026}}) {
+        SCOPED_TRACE(c.file);
+        Harness h;
+        h.ses.play("svc-1", {});
+        h.settle();
+        ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+        h.settle();
+        if (!h.feed_content(c.file, 1.0)) continue;
+        const std::string pmt = std::to_string(c.pmt_pid);
+        EXPECT_EQ(filter_opens(h.calls.entries()),
+                  (std::vector<std::string>{"open_filter section pid=0 table_id=0",
+                                            "open_filter section pid=" + pmt + " table_id=2", "open_filter ts pid=0",
+                                            "open_filter ts pid=" + pmt, "open_filter ts pid=" + std::to_string(c.video),
+                                            "open_filter ts pid=" + std::to_string(c.audio)}));
+        ASSERT_EQ(h.infos.size(), 1u);
+        EXPECT_EQ(h.infos[0].second.program_number, c.program);
+        EXPECT_EQ(h.infos[0].second.video_pid, c.video);
+        EXPECT_EQ(h.infos[0].second.audio_pid, std::optional<std::uint16_t>(c.audio));
+    }
+}
+
+}  // namespace

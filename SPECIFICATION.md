@@ -3760,12 +3760,14 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 0 | 0 | 100 | 0 |
+| Unit | 100 | 19 | 0 | 81 | 0 |
 | Integration | 22 | 0 | 0 | 22 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 0 | 0 | 168 | 0 |
+| **Total** | 168 | 19 | 0 | 149 | 0 |
 
-Requirements verified: 0 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
+Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
+
+Verified requirements: REQ-26, REQ-57, REQ-60.
 
 #### 5.9.3 Results
 
@@ -3854,25 +3856,25 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-318** | Unit | not executed | — | — | — | — |
 | **TST-319** | Unit | not executed | — | — | — | — |
 | **TST-320** | Unit | not executed | — | — | — | — |
-| **TST-401** | Unit | not executed | — | — | — | — |
-| **TST-402** | Unit | not executed | — | — | — | — |
-| **TST-403** | Unit | not executed | — | — | — | — |
-| **TST-404** | Unit | not executed | — | — | — | — |
-| **TST-405** | Unit | not executed | — | — | — | — |
-| **TST-406** | Unit | not executed | — | — | — | — |
-| **TST-407** | Unit | not executed | — | — | — | — |
-| **TST-408** | Unit | not executed | — | — | — | — |
-| **TST-409** | Unit | not executed | — | — | — | — |
-| **TST-410** | Unit | not executed | — | — | — | — |
-| **TST-411** | Unit | not executed | — | — | — | — |
-| **TST-412** | Unit | not executed | — | — | — | — |
-| **TST-413** | Unit | not executed | — | — | — | — |
-| **TST-414** | Unit | not executed | — | — | — | — |
-| **TST-415** | Unit | not executed | — | — | — | — |
-| **TST-416** | Unit | not executed | — | — | — | — |
-| **TST-417** | Unit | not executed | — | — | — | — |
-| **TST-418** | Unit | not executed | — | — | — | — |
-| **TST-419** | Unit | not executed | — | — | — | — |
+| **TST-401** | Unit | passed | 2026-11-26 | 3ca56b53 | 6 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-401/2026-11-26_3ca56b53_testout.txt` |
+| **TST-402** | Unit | passed | 2026-11-26 | 3ca56b53 | 5 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-402/2026-11-26_3ca56b53_testout.txt` |
+| **TST-403** | Unit | passed | 2026-11-26 | 3ca56b53 | 2 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-403/2026-11-26_3ca56b53_testout.txt` |
+| **TST-404** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-404/2026-11-26_3ca56b53_testout.txt` |
+| **TST-405** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-405/2026-11-26_3ca56b53_testout.txt` |
+| **TST-406** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-406/2026-11-26_3ca56b53_testout.txt` |
+| **TST-407** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-407/2026-11-26_3ca56b53_testout.txt` |
+| **TST-408** | Unit | passed | 2026-11-26 | 3ca56b53 | 5 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-408/2026-11-26_3ca56b53_testout.txt` |
+| **TST-409** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-409/2026-11-26_3ca56b53_testout.txt` |
+| **TST-410** | Unit | passed | 2026-11-26 | 3ca56b53 | 2 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-410/2026-11-26_3ca56b53_testout.txt` |
+| **TST-411** | Unit | passed | 2026-11-26 | 3ca56b53 | 3 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-411/2026-11-26_3ca56b53_testout.txt` |
+| **TST-412** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-412/2026-11-26_3ca56b53_testout.txt` |
+| **TST-413** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-413/2026-11-26_3ca56b53_testout.txt` |
+| **TST-414** | Unit | passed | 2026-11-26 | 3ca56b53 | 6 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-414/2026-11-26_3ca56b53_testout.txt` |
+| **TST-415** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-415/2026-11-26_3ca56b53_testout.txt` |
+| **TST-416** | Unit | passed | 2026-11-26 | 3ca56b53 | 2 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-416/2026-11-26_3ca56b53_testout.txt` |
+| **TST-417** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-417/2026-11-26_3ca56b53_testout.txt` |
+| **TST-418** | Unit | passed | 2026-11-26 | 3ca56b53 | 4 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-418/2026-11-26_3ca56b53_testout.txt` |
+| **TST-419** | Unit | passed | 2026-11-26 | 3ca56b53 | 3 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-419/2026-11-26_3ca56b53_testout.txt` |
 | **TST-501** | Integration | not executed | — | — | — | — |
 | **TST-502** | Integration | not executed | — | — | — | — |
 | **TST-503** | Integration | not executed | — | — | — | — |
