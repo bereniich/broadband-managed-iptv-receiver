@@ -1,0 +1,18 @@
+TESTOUT of TST-402 (Section 5.1.6)
+Command: node --test --test-reporter=tap webui/tests/*.test.js
+Commit: 3ca56b53 (main)  Date: 2026-11-26  Environment: Node.js 22.22.1, Ubuntu 26.04
+
+Test functions of TST-402:
+ok 1 - TST-402 context PLAYBACK: listed keys act as in Section 4.4.3, other keys change nothing
+ok 2 - TST-402 context NUMBER_ENTRY: listed keys act as in Section 4.4.3, other keys change nothing
+ok 3 - TST-402 context SERVICE_LIST: listed keys act as in Section 4.4.3, other keys change nothing
+ok 4 - TST-402 context EPG: listed keys act as in Section 4.4.3, other keys change nothing
+ok 5 - TST-402 context KEY_DIALOG: listed keys act as in Section 4.4.3, other keys change nothing
+
+Summary of the run (all Web application tests):
+# tests 47
+# pass 47
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
