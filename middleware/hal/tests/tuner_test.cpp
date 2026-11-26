@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <cstdio>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -284,6 +285,8 @@ TEST(Tst204, UnlockedAfter3sWithoutDatagramsAndLockedAgain) {
         std::lock_guard<std::mutex> lock(o.mutex);
         ASSERT_FALSE(o.lock_changes[1].first);
         const auto ms = std::chrono::duration_cast<milliseconds>(o.lock_changes[1].second - last_sent).count();
+        std::printf("TST-204 measured: Unlocked %lld ms after the last datagram (limit 3000 +/- 150 ms)\n",
+                    static_cast<long long>(ms));
         EXPECT_GE(ms, 2850);
         EXPECT_LE(ms, 3150);
     }
