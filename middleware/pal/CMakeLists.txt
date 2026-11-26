@@ -25,3 +25,7 @@ add_executable(pal_tests
 target_include_directories(pal_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../hal/tests)
 target_link_libraries(pal_tests PRIVATE pal GTest::gtest_main)
 gtest_discover_tests(pal_tests)
+
+# Integration test tool of CFG-RXP (Section 5.4.2): build/bin/pal_dump.
+add_executable(pal_dump tools/pal_dump.cpp)
+target_link_libraries(pal_dump PRIVATE pal)

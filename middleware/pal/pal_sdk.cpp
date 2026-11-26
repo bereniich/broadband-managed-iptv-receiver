@@ -74,11 +74,20 @@ void SdkDemux::stop_filter(FilterId id) { demux_.stop_filter(id); }
 
 void SdkDemux::close_filter(FilterId id) { demux_.remove_filter(id); }
 
-void SdkDemux::set_key(const std::uint16_t*, std::size_t, const std::uint8_t*) {
-    if (logger_ != nullptr) logger_->log(LogLevel::Error, kModule, "set_key: no descrambler in this build");
+void SdkDemux::set_key(const std::uint16_t* pids, std::size_t pid_count, const std::uint8_t key[16]) {
+    std::string list;
+    for (std::size_t i = 0; pids != nullptr && i < pid_count; ++i) list += (i > 0 ? "," : "") + std::to_string(pids[i]);
+    if (!demux_.set_key(pids, pid_count, key)) {
+        if (logger_ != nullptr) logger_->log(LogLevel::Error, kModule, "set_key refused for PIDs " + list);
+        return;
+    }
+    if (logger_ != nullptr) logger_->log(LogLevel::Info, kModule, "descrambler key set for PIDs " + list);
 }
 
-void SdkDemux::clear_keys() {}
+void SdkDemux::clear_keys() {
+    demux_.clear_keys();
+    if (logger_ != nullptr) logger_->log(LogLevel::Debug, kModule, "descrambler keys cleared");
+}
 
 IDemux::Stats SdkDemux::stats() const {
     const hal::Demux::Stats s = demux_.stats();
