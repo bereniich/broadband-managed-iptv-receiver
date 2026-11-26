@@ -531,4 +531,118 @@ TEST(Tst127, WriteFailureAtSessionLevel) {   // T-30, ER-26
     EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);
 }
 
+TEST(Tst134, PmtAndTsFiltersCannotBeOpened) {   // issue #24 at T-11 and T-12
+    for (std::size_t failing : {2u, 3u}) {   // open_filter calls: 1 PAT, 2 PMT, 3 the first TS filter
+        SCOPED_TRACE(failing == 2 ? "PMT filter" : "TS filter");
+        Harness h;
+        h.ses.play("svc-1", {});
+        h.settle();   // T-03 opened the PAT filter, /start answered
+        h.demux.fail_open_filters_from(failing - 1);
+        ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+        h.settle();
+        h.feed(h.gen.frames(1));   // PAT, PMT
+        EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "error"}));
+        EXPECT_EQ(error_code(h, 1), "RECEIVER_ERROR");
+        EXPECT_TRUE(h.demux.open_filters().empty());
+        EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);
+    }
+}
+
+// ---------------------------------------------------------------- step 9b: no signal, keepalive
+
+TEST(Tst136, NoDataAtStart) {   // T-20, T-32, T-10, ER-19
+    Harness h;
+    h.ses.play("svc-1", {});
+    h.settle();   // /start answered 200: waiting_stream, no tuner status
+    ASSERT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    h.advance(4999);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    h.advance(1);   // 5 000 ms after EV-START-OK
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "no_signal"}));
+    EXPECT_EQ(h.states.back().reason, std::optional<std::string>("no_data_at_start"));
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 1u);   // the session and its keepalives continue
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Unlocked));
+    h.settle();
+    EXPECT_EQ(h.states.size(), 3u);   // T-32: no change
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1),
+              (std::vector<std::string>{"starting", "waiting_stream", "no_signal", "waiting_stream"}));
+    EXPECT_FALSE(h.states.back().reason.has_value());
+    h.advance(3000);   // T-10 is "as T-09": the stream deadline runs from this Locked
+    EXPECT_EQ(error_code(h, 1), "INVALID_STREAM");
+}
+
+TEST(Tst137, DataLostWhilePlaying) {   // T-22, T-23, ER-20
+    Harness h;
+    h.play_until_playing();
+    const std::size_t files = h.store.files(1).size();
+    ASSERT_GT(files, 0u);
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Unlocked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing", "no_signal"}));
+    EXPECT_EQ(h.states.back().reason, std::optional<std::string>("data_lost"));
+    EXPECT_EQ(h.store.files(1).size(), files);   // directory and files kept
+    EXPECT_EQ(h.calls.find("close_session"), fakes::CallLog::npos);
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1),
+              (std::vector<std::string>{"starting", "waiting_stream", "playing", "no_signal", "playing"}));
+    EXPECT_FALSE(h.states.back().reason.has_value());
+    for (const auto& st : h.states) EXPECT_EQ(st.session, 1u);   // no new session number
+    EXPECT_TRUE(h.states.back().playing_since.has_value());
+}
+
+TEST(Tst145, KeepalivesEvery5s) {   // (1) T-26, T-27
+    Harness h;
+    h.play_until_playing();   // EV-START-OK at t0 = the time of play
+    for (int k = 1; k <= 6; ++k) {
+        h.advance(4999);
+        EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), static_cast<std::size_t>(k - 1)) << k * 5 << " s";
+        h.advance(1);
+        EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), static_cast<std::size_t>(k)) << k * 5 << " s";
+    }
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+}
+
+TEST(Tst145, SessionNotFound) {   // (2) T-28, ER-14
+    Harness h;
+    h.http.script("POST", kHe + "/keepalive", FakeHttpClient::Reply::file(404, "error_session_not_found.json"));
+    h.play_until_playing();
+    h.advance(5000);
+    EXPECT_EQ(error_code(h, 1), "HEADEND_UNREACHABLE");
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 0u);   // the head-end does not know the session
+    EXPECT_TRUE(h.demux.open_filters().empty());
+    EXPECT_NE(h.calls.find("close_session 1"), fakes::CallLog::npos);
+}
+
+TEST(Tst145, ThreeFailedKeepalives) {   // (3) T-29, ER-15
+    Harness h;
+    for (int i = 0; i < 3; ++i) h.http.script("POST", kHe + "/keepalive", FakeHttpClient::Reply::transport_failure());
+    h.play_until_playing();
+    h.advance(5000);
+    h.advance(5000);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);   // no change at the failures of 5 and 10 s
+    h.advance(4999);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+    h.advance(1);   // the third failure, 15 s
+    EXPECT_EQ(error_code(h, 1), "HEADEND_UNREACHABLE");
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);   // RELEASE; the response is only logged
+    EXPECT_EQ(h.logger.count_containing("keepalive failed ("), 3u);   // AL-SES: 1, 2 and 3 of 3
+}
+
+TEST(Tst145, SuccessResetsTheCount) {   // (4) T-27
+    Harness h;
+    using R = FakeHttpClient::Reply;
+    for (const R& r : {R::transport_failure(), R::transport_failure(), R::ok(200, R"({ "expires_in_s": 15 })"),
+                       R::transport_failure(), R::transport_failure()}) {
+        h.http.script("POST", kHe + "/keepalive", r);
+    }
+    h.play_until_playing();
+    for (int k = 0; k < 5; ++k) h.advance(5000);   // keepalives at 5, 10, 15, 20 and 25 s
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 5u);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+    EXPECT_EQ(error_code(h, 1), "");
+}
+
 }  // namespace

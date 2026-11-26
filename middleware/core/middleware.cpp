@@ -21,6 +21,7 @@ SessionController::Config ses_config(const MiddlewareConfig& c) {
     s.rtp_port = c.rtp_port;
     s.client_host = c.client_host;
     s.keepalive_interval_s = c.keepalive_interval_s;
+    s.keepalive_loss_s = c.keepalive_loss_s;
     s.no_data_timeout_s = c.no_data_timeout_s;
     s.stream_deadline_s = c.stream_deadline_s;
     return s;

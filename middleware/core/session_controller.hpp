@@ -4,7 +4,8 @@
 // Step 7c implements the clear path (T-01, T-02, T-03, T-06, T-09, T-11, T-12, T-18, T-19, T-26,
 // T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream;
 // step 9a the errors of a start (T-04, T-05, T-07, T-08, T-13, T-21, T-30 and a demux filter that
-// cannot be opened, issue #24).
+// cannot be opened, issue #24); step 9b no signal and the loss of the head-end (T-10, T-20, T-22,
+// T-23, T-28, T-29, T-32).
 // Every callback carries the generation of its attempt; tasks of another generation are discarded
 // before the table is consulted (rule 2). Runs on the AL worker.
 #pragma once
@@ -57,6 +58,7 @@ public:
         std::uint16_t rtp_port = 5004;
         std::string client_host = "127.0.0.1";
         int keepalive_interval_s = 5;
+        int keepalive_loss_s = 15;   // REQ-69: keepalive_loss_s / keepalive_interval_s failed keepalives
         int no_data_timeout_s = 5;
         int stream_deadline_s = 3;
     };
@@ -132,6 +134,7 @@ private:
     void send_start();                                          // S4
     void on_start(std::uint64_t generation, const HeadendError& error, const StartResult* result);
     void on_tuner(std::uint64_t generation, pal::TunerStatus status);
+    void first_locked();                                        // S6 of T-09 and T-10
     void on_pat(std::uint64_t generation, std::uint16_t pmt_pid);
     void on_pmt(std::uint64_t generation, const StreamDescription& stream);
     void on_pmt_novideo(std::uint64_t generation);              // T-13

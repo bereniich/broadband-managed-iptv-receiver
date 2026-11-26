@@ -11,6 +11,8 @@ constexpr const char* kModule = "AL-SES";
 constexpr const char* kFutureTime = "FUTURE_TIME";            // Section 3.10
 constexpr const char* kInvalidStream = "INVALID_STREAM";      // Section 3.10
 constexpr const char* kReceiverError = "RECEIVER_ERROR";      // Section 3.10
+constexpr const char* kNoDataAtStart = "no_data_at_start";    // Section 3.6.3
+constexpr const char* kDataLost = "data_lost";                // Section 3.6.3
 
 std::string start_text(const StartPoint& start) { return start.live() ? "live" : std::to_string(*start.time); }
 
@@ -248,15 +250,38 @@ void SessionController::on_tuner(std::uint64_t g, pal::TunerStatus status) {
     }
     const bool locked = status == pal::TunerStatus::Locked;
     log(pal::LogLevel::Info, std::string("tuner ") + (locked ? "Locked" : "Unlocked"));
+    const bool no_data_at_start = s_->state == State::NoSignal && s_->reason == kNoDataAtStart;
     if (locked && in({State::Starting, State::WaitingStream}) && !s_->locked) {
-        // T-09 (S6): the first Locked of the attempt.
-        cancel_timer(Timer::NoData);
-        s_->locked = true;
-        s_->locked_ms = clock_.monotonic_ms();
-        start_timer(Timer::Deadline, config_.stream_deadline_s);
+        first_locked();   // T-09
         return;
     }
-    not_handled(locked ? "EV-LOCKED" : "EV-UNLOCKED");   // T-10, T-22, T-23, T-32, step 9
+    if (locked && no_data_at_start) {
+        first_locked();   // T-10: as T-09, then back to waiting_stream
+        set_state(State::WaitingStream);
+        return;
+    }
+    if (locked && s_->state == State::NoSignal && s_->reason == kDataLost) {
+        set_state(State::Playing);   // T-23: AL-OUT continues with the next key-frame start
+        return;
+    }
+    if (!locked && s_->state == State::Playing) {
+        set_state(State::NoSignal, kDataLost);   // T-22: the player and the HLS files are kept
+        return;
+    }
+    if (!locked && (in({State::Starting, State::WaitingStream, State::ValidatingKey}) || no_data_at_start)) {
+        // T-32: the stream deadline or the no-data timer decides (T-20, T-21).
+        log(pal::LogLevel::Debug, "Unlocked ignored (T-32)");
+        return;
+    }
+    not_handled(locked ? "EV-LOCKED" : "EV-UNLOCKED");
+}
+
+void SessionController::first_locked() {
+    // S6: cancel the no-data timer; the stream deadline starts at the first Locked of the attempt.
+    cancel_timer(Timer::NoData);
+    s_->locked = true;
+    s_->locked_ms = clock_.monotonic_ms();
+    start_timer(Timer::Deadline, config_.stream_deadline_s);
 }
 
 // ---------------------------------------------------------------- T-11, T-12
@@ -343,6 +368,10 @@ void SessionController::on_timer(std::uint64_t g, Timer timer) {
                                               [this, g](const HeadendError& e) { on_keepalive(g, e); });
         return;
     }
+    if (timer == Timer::NoData && s_->state == State::WaitingStream) {
+        set_state(State::NoSignal, kNoDataAtStart);   // T-20: the session and the keepalives continue
+        return;
+    }
     if (timer == Timer::Deadline && in({State::Starting, State::WaitingStream, State::ValidatingKey})) {
         // T-21: no protection or key decision 3 s after the first Locked; the stored key is kept.
         fail(kInvalidStream, "no protection or key decision within " + std::to_string(config_.stream_deadline_s) +
@@ -360,7 +389,20 @@ void SessionController::on_keepalive(std::uint64_t g, const HeadendError& error)
         s_->keepalive_failures = 0;   // T-27
         return;
     }
-    not_handled("EV-KA-FAIL " + error.code);   // T-28, T-29, step 9
+    if (error.code == kSessionNotFound) {
+        // T-28: the head-end does not know the session any more; no /stop for it.
+        s_->headend_session_id.clear();
+        fail(kHeadendUnreachable, "keepalive answered SESSION_NOT_FOUND");
+        return;
+    }
+    // T-29: three consecutive failures (keepalive_loss_s / keepalive_interval_s, REQ-69).
+    const int limit = std::max(1, config_.keepalive_loss_s / std::max(1, config_.keepalive_interval_s));
+    ++s_->keepalive_failures;
+    log(pal::LogLevel::Warn, "keepalive failed (" + std::to_string(s_->keepalive_failures) + " of " +
+                                 std::to_string(limit) + "): " + error.code);
+    if (s_->keepalive_failures >= limit) {
+        fail(kHeadendUnreachable, std::to_string(limit) + " consecutive keepalives failed");
+    }
 }
 
 // ---------------------------------------------------------------- RELEASE (rule 4)
