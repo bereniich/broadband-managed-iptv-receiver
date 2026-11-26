@@ -4,19 +4,29 @@
 Run with: python3 -m unittest discover -s tests/tools   (Python standard library only, NFR-11)
 
 The test classes carry the ID of the first test of Section 5.4 that relies on the tool:
-contract_check.py -> TST-501. Expected values come from Section 3 of SPECIFICATION.md: its JSON
-examples must pass, and each variant below breaks exactly one rule of Section 3.
+contract_check.py -> TST-501, ws_client.py -> TST-521. Expected values come from Section 3 of
+SPECIFICATION.md (its JSON examples must pass, and each variant below breaks exactly one rule of
+Section 3) and from RFC 6455 (the handshake example of Section 1.3 and the frames of Section 5.7).
 """
 
+import base64
+import contextlib
 import copy
+import hashlib
+import io
 import json
 import os
+import socket
+import struct
 import sys
+import tempfile
+import threading
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import contract_check  # noqa: E402
+import ws_client  # noqa: E402
 
 # Examples of Section 3 (3.2.1, 3.2.2, 3.2.3, 3.3.1, 3.6.3).
 SERVICES = {'services': [
@@ -277,6 +287,242 @@ class Tst501ContractCheckRecording(unittest.TestCase):
         self.assertRejected(binary, 'binary frame')
         self.assertRejected(recording(('recv', 'garbage')), 'not valid JSON')
         self.assertRejected('{"t_ms": 1}\n', 'not a recording line')
+
+
+# ---------------------------------------------------------------- ws_client.py (TST-521)
+
+class Tst521WsClientFrames(unittest.TestCase):
+    def test_handshake_example_of_rfc_6455(self):   # RFC 6455, Section 1.3
+        self.assertEqual(ws_client.accept_key('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=')
+
+    def test_frames_of_rfc_6455_section_5_7(self):
+        hello = b'Hello'
+        self.assertEqual(ws_client.encode_frame(1, hello, None), bytes([0x81, 0x05]) + hello)
+        self.assertEqual(ws_client.encode_frame(1, hello, bytes([0x37, 0xFA, 0x21, 0x3D])),
+                         bytes([0x81, 0x85, 0x37, 0xFA, 0x21, 0x3D, 0x7F, 0x9F, 0x4D, 0x51, 0x58]))
+        self.assertEqual(ws_client.encode_frame(2, bytes(256), None)[:4], bytes([0x82, 0x7E, 0x01, 0x00]))
+        self.assertEqual(ws_client.encode_frame(2, bytes(65536), None)[:10],
+                         bytes([0x82, 0x7F, 0, 0, 0, 0, 0, 1, 0, 0]))
+
+    def test_parser_joins_fragments_and_passes_control_frames(self):
+        p = ws_client.FrameParser()
+        data = (bytes([0x01, 0x03]) + b'Hel' + bytes([0x89, 0x05]) + b'Hello' + bytes([0x80, 0x02]) + b'lo'
+                + bytes([0x82, 0x7E, 0x01, 0x00]) + bytes(256))
+        out = []
+        for i in range(len(data)):            # one byte at a time: frames split anywhere
+            out += p.feed(data[i:i + 1])
+        self.assertEqual(out, [(9, b'Hello'), (1, b'Hello'), (2, bytes(256))])
+
+    def test_parser_rejects_masked_server_frames_and_bad_sequences(self):
+        for data in (bytes([0x81, 0x85, 1, 2, 3, 4]) + bytes(5),     # masked (Section 5.1)
+                     bytes([0x80, 0x00]),                            # continuation without a message
+                     bytes([0x01, 0x00, 0x81, 0x00]),                # new message inside a fragmented one
+                     bytes([0x09, 0x00]),                            # fragmented control frame
+                     bytes([0xC1, 0x00]),                            # reserved bit
+                     bytes([0x83, 0x00])):                           # reserved opcode
+            with self.assertRaises(ws_client.ProtocolError, msg=data.hex()):
+                ws_client.FrameParser().feed(data)
+
+    def test_key_is_masked_in_sent_text(self):   # REQ-55, NFR-08
+        text = json.dumps({'type': 'command', 'id': 3, 'name': 'set_key',
+                           'params': {'service_id': 'svc-3', 'key': '3A7F1C9E5B2D8046A1E3C5079B4D6F28'}})
+        self.assertEqual(json.loads(ws_client.masked(text))['params']['key'], '3A7F…')
+        self.assertEqual(ws_client.masked('not json'), 'not json')
+
+    def test_patterns(self):
+        labels = {'p': {'id': 4, 'session': 12}}
+        state = {'type': 'event', 'name': 'session_state', 'data': {'session': 12, 'state': 'playing', 'reason': None}}
+        m = ws_client.matches
+        self.assertTrue(m({'name': 'session_state', 'data': {'session': '$p', 'state': 'playing'}}, state, labels))
+        self.assertTrue(m({'data': {'state': ['waiting_stream', 'playing']}}, state, labels))
+        self.assertTrue(m({'data': {'reason': None}}, state, labels))
+        self.assertFalse(m({'data': {'state': 'starting'}}, state, labels))
+        self.assertFalse(m({'data': {'session': '$q'}}, state, labels))
+        self.assertFalse(m({'data': {'missing': None}}, state, labels))
+        self.assertFalse(m({'data': {'session': 12.0}}, state, labels))
+        self.assertTrue(m({'response_to': 'p', 'ok': True}, {'type': 'response', 'id': 4, 'ok': True}, labels))
+        self.assertFalse(m({'response_to': 'p'}, {'type': 'response', 'id': 5, 'ok': True}, labels))
+
+
+def server_frame(opcode, payload, fin=True):
+    """Unmasked server frame, written here independently of ws_client.encode_frame."""
+    head = bytes([(0x80 if fin else 0) | opcode])
+    n = len(payload)
+    head += bytes([n]) if n < 126 else bytes([126]) + struct.pack('!H', n)
+    return head + payload
+
+
+class TestServer:
+    """A one-connection WebSocket server; `respond(command)` returns the frames to send."""
+
+    def __init__(self, respond, greeting=b''):
+        self.listener = socket.socket()
+        self.listener.bind(('127.0.0.1', 0))
+        self.listener.listen(1)
+        self.url = 'ws://127.0.0.1:%d/ws/control' % self.listener.getsockname()[1]
+        self.respond = respond
+        self.greeting = greeting
+        self.received = []
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self):
+        conn, _ = self.listener.accept()
+        self.listener.close()
+        conn.settimeout(10)
+        data = b''
+        while b'\r\n\r\n' not in data:
+            data += conn.recv(4096)
+        key = [l.split(':', 1)[1].strip() for l in data.decode().split('\r\n') if l.lower().startswith('sec-websocket-key')][0]
+        accept = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+        conn.sendall(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+                     b'Sec-WebSocket-Accept: ' + accept + b'\r\n\r\n' + self.greeting)
+        buf = b''
+        while True:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+            while len(buf) >= 2:
+                n, off = buf[1] & 0x7F, 2
+                if n == 126:
+                    n, off = struct.unpack('!H', buf[2:4])[0], 4
+                if len(buf) < off + 4 + n:
+                    break
+                mask, payload = buf[off:off + 4], buf[off + 4:off + 4 + n]
+                payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+                opcode, buf = buf[0] & 0x0F, buf[off + 4 + n:]
+                self.received.append((opcode, payload))
+                if opcode == 8:
+                    conn.sendall(server_frame(8, payload))
+                    conn.close()
+                    return
+                if opcode == 1:
+                    try:
+                        command = json.loads(payload)
+                    except ValueError:
+                        continue
+                    for frame in self.respond(command):
+                        conn.sendall(frame)
+
+
+def text_frame(obj):
+    return server_frame(1, json.dumps(obj).encode())
+
+
+def state_event(session, state):
+    return {'type': 'event', 'name': 'session_state',
+            'data': dict(SESSION_STATE, session=session, state=state)}
+
+
+def run_client(server, steps, record=None):
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
+        json.dump(steps, f)
+    argv = ['--url', server.url, '--script', f.name, '--linger-ms', '200']
+    if record:
+        argv += ['--record', record]
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            code = ws_client.main(argv)
+    finally:
+        os.unlink(f.name)
+    server.thread.join(5)
+    return code, out.getvalue()
+
+
+PLAY_STEPS = [
+    {'command': 'play', 'params': {'service_id': 'svc-3', 'start': 'live'}, 'as': 'p'},
+    {'expect': {'response_to': 'p', 'ok': True}, 'within_ms': 2000},
+    {'expect': {'name': 'session_state', 'data': {'session': '$p', 'state': 'starting'}}, 'within_ms': 2000},
+    {'expect': {'name': 'session_state', 'data': {'session': '$p', 'state': 'waiting_stream'}}, 'optional': True,
+     'within_ms': 2000},
+    {'expect': {'name': 'session_state', 'data': {'session': '$p', 'state': 'playing'}}, 'within_ms': 2000},
+    {'command': 'set_key', 'params': {'service_id': 'svc-3', 'key': '3A7F1C9E5B2D8046A1E3C5079B4D6F28'}},
+    {'raw': 'not json'},
+    {'binary_random': 300},
+    {'sleep_ms': 100},
+]
+
+
+class Tst521WsClientRun(unittest.TestCase):
+    def test_script_record_and_expectations(self):
+        def respond(c):
+            if c.get('name') == 'play':
+                playing = json.dumps(state_event(7, 'playing')).encode()
+                return [text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {'session': 7}}),
+                        server_frame(9, b'ping'),
+                        text_frame(state_event(6, 'stopped')),          # another session: skipped
+                        text_frame(state_event(7, 'starting')),
+                        server_frame(1, playing[:10], fin=False),        # fragmented message
+                        server_frame(0, playing[10:])]
+            return [text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {}})]
+        server = TestServer(respond, greeting=text_frame({'type': 'event', 'name': 'mw_status',
+                                                          'data': {'reachable': True}}))
+        with tempfile.TemporaryDirectory() as d:
+            record = os.path.join(d, 'rec.jsonl')
+            code, out = run_client(server, PLAY_STEPS, record)
+            with open(record, encoding='utf-8') as f:
+                text = f.read()
+        self.assertEqual(code, 0, out)
+        self.assertIn('PASS: 6 message(s) received, 4 expectation(s), 0 failed', out)
+        lines = [json.loads(l) for l in text.splitlines()]
+        kinds = [(l['dir'], l['kind']) for l in lines]
+        self.assertEqual(kinds[0], ('recv', 'text'))                     # mw_status of the handshake, first
+        self.assertEqual((kinds.count(('recv', 'text')), kinds.count(('sent', 'text')),
+                          kinds.count(('sent', 'binary'))), (6, 3, 1))
+        self.assertNotIn('3A7F1C9E', text + out)                         # key masked (NFR-08)
+        self.assertIn('3A7F…', text)
+        self.assertTrue(all(isinstance(l['t_ms'], int) and l['t_ms'] > 1700000000000 for l in lines))
+        self.assertEqual(contract_check.check_text('ws', text, 'rec'), [])
+        kinds = [op for op, _ in server.received]
+        self.assertEqual(kinds, [1, 10, 1, 1, 2, 8])                     # pong answered the ping; close at the end
+        self.assertEqual(server.received[1][1], b'ping')
+        self.assertIn('SKIP step 4', out)               # optional waiting_stream not sent
+        self.assertIn('<binary 300 bytes>', out)
+
+    def test_unexpected_state_in_between_fails(self):
+        def respond(c):
+            return [text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {'session': 7}}),
+                    text_frame(state_event(7, 'starting')), text_frame(state_event(7, 'no_signal')),
+                    text_frame(state_event(7, 'playing'))]
+        code, out = run_client(TestServer(respond), PLAY_STEPS[:5])
+        self.assertEqual(code, 1, out)
+        self.assertIn('session 7 went to "no_signal"', out)
+
+    def test_ids_of_raw_steps_are_not_assigned(self):   # IN-07 uses the id 5
+        def respond(c):
+            return [text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {}})]
+        server = TestServer(respond)
+        steps = [{'raw': json.dumps({'type': 'command', 'id': 2, 'name': 'fly', 'params': {}})},
+                 {'command': 'stop'}, {'command': 'stop'}, {'sleep_ms': 100}]
+        code, out = run_client(server, steps)
+        self.assertEqual(code, 0, out)
+        ids = [json.loads(p)['id'] for op, p in server.received if op == 1]
+        self.assertEqual(ids, [2, 1, 3])
+
+    def test_expect_all_accepts_any_order(self):   # response to stop and stopped: order not specified
+        def respond(c):
+            stopped = text_frame(state_event(7, 'stopped'))
+            response = text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {}})
+            return [stopped, response] if c['id'] == 1 else [response, stopped]
+        both = {'expect_all': [{'response_to': 's'}, {'name': 'session_state', 'data': {'state': 'stopped'}}],
+                'within_ms': 1000}
+        code, out = run_client(TestServer(respond), [{'command': 'stop', 'as': 's'}, both,
+                                                     {'command': 'stop', 'as': 's'}, both])
+        self.assertEqual(code, 0, out)
+        code, out = run_client(TestServer(lambda c: [text_frame(state_event(7, 'stopped'))]),
+                               [{'command': 'stop', 'as': 's'}, dict(both, within_ms=300)])
+        self.assertEqual(code, 1, out)
+        self.assertIn('{"response_to": "s"} not received within 300 ms', out)
+
+    def test_missing_message_fails_at_its_time(self):
+        def respond(c):
+            return [text_frame({'type': 'response', 'id': c['id'], 'ok': True, 'result': {'session': 7}})]
+        steps = PLAY_STEPS[:2] + [dict(PLAY_STEPS[2], within_ms=300)]
+        code, out = run_client(TestServer(respond), steps)
+        self.assertEqual(code, 1, out)
+        self.assertIn('not received within 300 ms', out)
 
 
 if __name__ == '__main__':
