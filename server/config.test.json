@@ -1,0 +1,8 @@
+{
+  "mw_port": 8080,
+  "headend_port": 8081,
+  "headend_url": "http://127.0.0.1:8081/api/v1/stream",
+  "services_file": "content/test/services.test.json",
+  "content_dir": "content",
+  "log_dir": "logs"
+}
