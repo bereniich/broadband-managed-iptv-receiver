@@ -2,6 +2,7 @@
 // port 0, its own manager and thread).
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -170,6 +171,7 @@ TEST(Tst222, TimeoutOf300msWithAServerThatAnswersAfter1s) {
     const double elapsed = std::chrono::duration<double, std::milli>(r.at - started).count();
     EXPECT_FALSE(r.response.transport_ok);
     EXPECT_EQ(r.response.status, 0);
+    std::printf("TST-222 measured: timeout callback after %.1f ms (limit 300 +/- 50 ms)\n", elapsed);
     EXPECT_GE(elapsed, 250);
     EXPECT_LE(elapsed, 350);
     std::this_thread::sleep_for(milliseconds(1200));

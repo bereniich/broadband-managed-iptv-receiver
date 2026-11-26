@@ -12,6 +12,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -310,6 +312,8 @@ TEST(Tst311, PositionIsPcrPacketAtMostOnePcrIntervalBeforeP) {
         const int64_t pcr = pcr_of(packet.data());
         ASSERT_GE(pcr, 0) << "no PCR at the returned offset";
         const double c = static_cast<double>(pcr - info.first_pcr) / 90000.0;
+        std::printf("TST-311 measured: T mod 600 = %lld s: p - c = %.4f s (limit 0 <= p - c < 0.04 s)\n",
+                    static_cast<long long>(p), p - c);
         EXPECT_GE(p - c, 0.0);
         EXPECT_LT(p - c, 0.04);
         EXPECT_EQ(pos.c, pcr - info.first_pcr);
@@ -492,6 +496,8 @@ TEST(Tst314, SenderStreamsAcrossTheLoopBoundaryInRealTime) {
     }
     ASSERT_GT(loop, 1u) << "no datagram with file offset 0";
     const double loop_at = std::chrono::duration<double>(d[loop].at - d[0].at).count();
+    std::printf("TST-314 measured: loop boundary after %.3f s (expected 3 s), gap at the boundary %.1f ms\n", loop_at,
+                std::chrono::duration<double, std::milli>(d[loop].at - d[loop - 1].at).count());
     EXPECT_GT(loop_at, 2.8);
     EXPECT_LT(loop_at, 3.2);
     EXPECT_LT(d[loop].at - d[loop - 1].at, milliseconds(100)) << "pause at the loop boundary";
@@ -514,6 +520,7 @@ TEST(Tst314, SenderStreamsAcrossTheLoopBoundaryInRealTime) {
         if (x.at > window_start) bytes += static_cast<double>(x.packets() * 188);
     }
     const double bitrate = bytes * 8 / 10.0;
+    std::printf("TST-314 measured: bitrate %.0f bit/s (3500000 +/- 5 %%)\n", bitrate);
     EXPECT_NEAR(bitrate, kMuxRate, kMuxRate * 0.05) << bitrate;
 }
 
@@ -565,6 +572,8 @@ TEST(Tst315, SenderSkipsForwardAfterAClockJumpOf2s) {
             EXPECT_EQ(skip, 0u) << "more than one skip";
             skip = i;
             // 2 s of content skipped (plus at most one block and one PCR interval), no block of them sent.
+            std::printf("TST-315 measured: content skipped by %.4f s at block %zu (2 s within one PCR interval)\n",
+                        step, i);
             EXPECT_GT(step, 2.0 - kMaxPcrInterval);
             EXPECT_LT(step, 2.0 + kMaxPcrInterval + 0.005);
         }
@@ -579,10 +588,14 @@ TEST(Tst315, SenderSkipsForwardAfterAClockJumpOf2s) {
 
     // Before and after the skip every block is on the timeline c0 + (now - w0) within one PCR
     // interval (receive jitter of the test allowed: 10 ms); no burst, no shifted timeline.
+    double worst = 0;
     for (size_t i = 1; i < d.size(); ++i) {
         const double elapsed = std::chrono::duration<double>(d[i].at - d[0].at).count() + (i >= skip ? 2.0 : 0.0);
+        worst = std::max(worst, std::fabs(content(i) - elapsed));
         EXPECT_NEAR(content(i), elapsed, kMaxPcrInterval + 0.010) << i;
     }
+    std::printf("TST-315 measured: largest deviation from the timeline %.4f s (limit %.4f s)\n", worst,
+                kMaxPcrInterval + 0.010);
     const std::string log = test::read_text(dir.file("headend.log"));
     EXPECT_NE(log.find("WARN [SRV-RTP] late by "), std::string::npos) << log;
     EXPECT_NE(log.find(" s, skipping to content time "), std::string::npos) << log;
@@ -761,6 +774,8 @@ TEST(Tst317, SessionWithoutKeepaliveExpiresBetween15And16s) {
         const auto ids = he->head_end->session_ids();
         if (expired_at_ms < 0 && std::find(ids.begin(), ids.end(), "hs-000002") == ids.end()) expired_at_ms = t;
     }
+    std::printf("TST-317 measured: session without keepalive stopped after %lld ms (limit 15000 - 16000 ms)\n",
+                static_cast<long long>(expired_at_ms));
     EXPECT_GE(expired_at_ms, 15000);
     EXPECT_LE(expired_at_ms, 16000);
     EXPECT_EQ(he->head_end->session_ids(), std::vector<std::string>{"hs-000001"});
