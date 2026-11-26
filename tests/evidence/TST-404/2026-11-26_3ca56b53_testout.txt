@@ -1,0 +1,14 @@
+TESTOUT of TST-404 (Section 5.1.6)
+Command: node --test --test-reporter=tap webui/tests/*.test.js
+Commit: 3ca56b53 (main)  Date: 2026-11-26  Environment: Node.js 22.22.1, Ubuntu 26.04
+
+Test functions of TST-404:
+ok 46 - TST-404 number entry commits with ENTER or after 2 s, at most 3 digits
+
+Summary of the run (all Web application tests):
+# tests 47
+# pass 47
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0

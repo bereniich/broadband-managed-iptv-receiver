@@ -1,0 +1,18 @@
+TESTOUT of TST-408 (Section 5.1.6)
+Command: node --test --test-reporter=tap webui/tests/*.test.js
+Commit: 3ca56b53 (main)  Date: 2026-11-26  Environment: Node.js 22.22.1, Ubuntu 26.04
+
+Test functions of TST-408:
+ok 24 - TST-408 commands carry unique ids; responses complete the call with the same id; events are dispatched
+ok 25 - TST-408 closing rejects pending calls, sets connected false and reconnects every 2 s
+ok 26 - TST-408 reconnect: No signal while disconnected, then get_status and get_services, session 5 adopted with its player
+ok 40 - TST-408 connection loss rejects pending calls and shows No signal; the running session is adopted with its player
+ok 41 - TST-408 after a page reload the running session is requested again from its position
+
+Summary of the run (all Web application tests):
+# tests 47
+# pass 47
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
