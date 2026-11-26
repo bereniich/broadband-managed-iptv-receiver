@@ -1,0 +1,53 @@
+{
+  "archive_window_s": 7200,
+  "services": [
+    {
+      "service_id": "svc-1",
+      "number": 1,
+      "name": "Demo One",
+      "description": "Clear demo service",
+      "protected": false,
+      "file": "svc-1.ts",
+      "programs": [
+        { "title": "News at Nine", "description": "First program of the clear demo service.", "duration": 300 },
+        { "title": "Weather Today", "description": "Second program of the clear demo service.", "duration": 300 }
+      ]
+    },
+    {
+      "service_id": "svc-2",
+      "number": 2,
+      "name": "Demo Two",
+      "description": "Clear demo service",
+      "protected": false,
+      "file": "svc-2.ts",
+      "programs": [
+        { "title": "Science Hour", "description": "First program of the clear demo service.", "duration": 300 },
+        { "title": "Nature Walk", "description": "Second program of the clear demo service.", "duration": 300 }
+      ]
+    },
+    {
+      "service_id": "svc-3",
+      "number": 3,
+      "name": "Premium One",
+      "description": "Protected demo service",
+      "protected": true,
+      "file": "svc-3.enc.ts",
+      "programs": [
+        { "title": "Premium Morning", "description": "First program of the protected demo service.", "duration": 300 },
+        { "title": "Premium Evening", "description": "Second program of the protected demo service.", "duration": 300 }
+      ]
+    },
+    {
+      "service_id": "svc-4",
+      "number": 4,
+      "name": "Premium Two",
+      "description": "Protected demo service",
+      "protected": true,
+      "file": "svc-4.enc.ts",
+      "programs": [
+        { "title": "Cinema Classic", "description": "First program of the protected demo service.", "duration": 300 },
+        { "title": "Late Movie", "description": "Second program of the protected demo service.", "duration": 300 }
+      ]
+    }
+  ]
+}
