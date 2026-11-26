@@ -23,7 +23,12 @@ namespace al {
 
 class HlsPackager {
 public:
-    static constexpr std::uint64_t kMinSegmentTicks = 1 * kPcrTicksPerSecond;   // REQ-23
+    // REQ-23 "at least 1 s of content (by PCR)", with a tolerance of one PCR interval of the content
+    // (20 ms, Section 4.7.2): with FFmpeg content the PCR of consecutive key frames is 0.996 – 1.004 s
+    // apart, and a strict 1 s would make most segments 2 GOPs long and some longer than the 2 s of
+    // IF-INT-02 (open point P3, decided 2026-11-26; proposed for specification 1.2).
+    static constexpr std::uint64_t kCutToleranceTicks = kPcrTicksPerSecond / 50;   // 20 ms
+    static constexpr std::uint64_t kMinSegmentTicks = 1 * kPcrTicksPerSecond - kCutToleranceTicks;
     static constexpr std::uint64_t kMaxSegmentTicks = 2 * kPcrTicksPerSecond;   // IF-INT-02, B5
     static constexpr std::uint64_t kMaxPcrStepTicks = 1 * kPcrTicksPerSecond;   // REQ-24
     static constexpr std::size_t kListedSegments = 6;                          // REQ-23

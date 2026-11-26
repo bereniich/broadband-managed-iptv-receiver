@@ -21,6 +21,7 @@ struct StreamGen {
     std::uint64_t pcr = 100 * 27000000ull;  // PCR of the next frame
     std::function<bool(int)> is_key = [](int f) { return f % 25 == 0; };
     std::uint8_t cc[4] = {0, 0, 0, 0};
+    std::uint64_t frame_ticks = kFrameTicks;   // PCR step per frame (exactly 40 ms by default)
 
     Bytes make(std::uint16_t pid, int cc_index, bool pusi, Bytes payload, std::optional<std::uint64_t> pcr_ticks = {},
                bool rai = false) {
@@ -41,7 +42,7 @@ struct StreamGen {
     // key frames), two video continuation packets and one audio packet.
     std::vector<Bytes> frames(int count) {
         std::vector<Bytes> out;
-        for (int i = 0; i < count; ++i, ++frame, pcr += kFrameTicks) {
+        for (int i = 0; i < count; ++i, ++frame, pcr += frame_ticks) {
             if (frame % 2 == 0) {
                 Bytes pat(1, 0x00);
                 const Bytes s = make_pat({{1, 4096}});
@@ -67,7 +68,7 @@ struct StreamGen {
 
     void skip(int count) {   // frames removed from the input (a gap of content)
         frame += count;
-        pcr += static_cast<std::uint64_t>(count) * kFrameTicks;
+        pcr += static_cast<std::uint64_t>(count) * frame_ticks;
     }
 };
 

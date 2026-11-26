@@ -177,6 +177,36 @@ TEST(Tst121, SegmentsStartWithPatPmtKeyFrame) {
     EXPECT_TRUE(h.logger.contains("segment seg-0.ts duration=1.000 session=1 generation=1"));
 }
 
+TEST(Tst121, CutToleranceOfOnePcrInterval) {
+    // P3 (decided 2026-11-26): the key frames of FFmpeg content are 0.996 – 1.004 s apart by PCR; a
+    // segment is cut at the first key frame at least 1 s - 20 ms after its start.
+    {
+        Harness h;   // GOP of 0.9995 s (25 frames of 39.98 ms): every key frame cuts, about 1 s each
+        StreamGen gen;
+        gen.frame_ticks = 26986500 / 25;
+        h.feed(gen.frames(300));
+        EXPECT_EQ(h.written.size(), 11u);
+        for (std::uint64_t k = 0; k < 11; ++k) EXPECT_EQ(check_segment_start(h.segment(k)), static_cast<int>(25 * k));
+        for (const std::string& d : h.extinf()) EXPECT_EQ(d, "1.000");
+    }
+    {
+        Harness h;   // GOP of 0.981 s: still above 1 s - 20 ms, every key frame cuts
+        StreamGen gen;
+        gen.frame_ticks = 26487000 / 25;
+        h.feed(gen.frames(300));
+        EXPECT_EQ(h.written.size(), 11u);
+        for (const std::string& d : h.extinf()) EXPECT_EQ(d, "0.981");
+    }
+    {
+        Harness h;   // GOP of 0.979 s: below the tolerance, segments of 2 GOPs (1.958 s)
+        StreamGen gen;
+        gen.frame_ticks = 26433000 / 25;
+        h.feed(gen.frames(300));
+        EXPECT_EQ(h.written.size(), 5u);
+        for (const std::string& d : h.extinf()) EXPECT_EQ(d, "1.958");
+    }
+}
+
 TEST(Tst122, OnlyStreamPids) {
     Harness h;
     StreamGen gen;
