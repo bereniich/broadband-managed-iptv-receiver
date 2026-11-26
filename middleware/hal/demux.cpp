@@ -10,12 +10,27 @@ constexpr const char* kModule = "HAL-DMX";
 constexpr std::size_t kTsPacketSize = 188;
 constexpr std::uint16_t kNullPid = 0x1FFF;
 
+// The demux whose filter callbacks run on this thread right now (its mutex is held).
+thread_local const Demux* tls_delivering = nullptr;
+
+struct DeliveryMark {  // also cleared if a callback throws
+    explicit DeliveryMark(const Demux* demux) { tls_delivering = demux; }
+    ~DeliveryMark() { tls_delivering = nullptr; }
+};
+
 }  // namespace
 
 Demux::Demux(LogFn log) : log_(std::move(log)) { last_cc_.fill(-1); }
 
+bool Demux::refuse_in_callback(const char* method) const {
+    if (tls_delivering != this) return false;
+    if (log_) log_(LogLevel::Error, kModule, std::string(method) + " called from a filter callback: refused");
+    return true;
+}
+
 Demux::FilterId Demux::add_filter(FilterType type, std::uint16_t pid, int table_id, DataCallback on_data) {
     if (pid > kNullPid || table_id < -1 || table_id > 255 || !on_data) return 0;
+    if (refuse_in_callback("add_filter")) return 0;
     std::lock_guard<std::mutex> lock(mutex_);
     auto f = std::make_unique<Filter>();
     f->id = next_id_++;
@@ -32,6 +47,7 @@ Demux::FilterId Demux::add_filter(FilterType type, std::uint16_t pid, int table_
 }
 
 bool Demux::start_filter(FilterId id) {
+    if (refuse_in_callback("start_filter")) return false;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = filters_.find(id);
     if (it == filters_.end()) return false;
@@ -40,6 +56,7 @@ bool Demux::start_filter(FilterId id) {
 }
 
 void Demux::stop_filter(FilterId id) {
+    if (refuse_in_callback("stop_filter")) return;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = filters_.find(id);
     if (it == filters_.end()) return;
@@ -49,6 +66,7 @@ void Demux::stop_filter(FilterId id) {
 }
 
 void Demux::remove_filter(FilterId id) {
+    if (refuse_in_callback("remove_filter")) return;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto it = filters_.find(id);
     if (it == filters_.end()) return;
@@ -63,18 +81,22 @@ void Demux::remove_filter(FilterId id) {
 }
 
 Demux::Stats Demux::stats() const {
+    if (tls_delivering == this) return stats_;  // the mutex is already held by this thread
     std::lock_guard<std::mutex> lock(mutex_);
     return stats_;
 }
 
 void Demux::reset_stats() {
+    if (refuse_in_callback("reset_stats")) return;
     std::lock_guard<std::mutex> lock(mutex_);
     stats_ = Stats{};
     last_cc_.fill(-1);
 }
 
 void Demux::feed(std::uint8_t* packets, std::size_t count) {
+    if (refuse_in_callback("feed")) return;
     std::lock_guard<std::mutex> lock(mutex_);
+    const DeliveryMark mark(this);
     for (std::size_t i = 0; i < count; ++i) feed_packet(packets + i * kTsPacketSize);
 }
 

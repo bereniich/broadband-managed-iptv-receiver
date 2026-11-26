@@ -53,10 +53,13 @@ public:
     bool tune(std::uint16_t udp_port, std::uint32_t ssrc);
 
     // Stops reception; returns after the receive thread has ended, so no callback follows.
-    // Must not be called from the tuner's own callbacks.
+    // tune() and untune() called from the tuner's own callbacks (the receive thread, which cannot
+    // join itself) are refused: logged as an error, tune() returns false, untune() has no effect.
     void untune();
 
     Stats stats() const;
+    // True on the receive thread, i.e. inside the tuner's own callbacks.
+    bool on_receive_thread() const { return std::this_thread::get_id() == receive_thread_id_.load(); }
     std::uint16_t bound_port() const { return bound_port_; }
     // SO_RCVBUF reported by the kernel after the request of Options::receive_buffer_bytes (B1).
     int effective_receive_buffer() const { return effective_rcvbuf_; }
@@ -75,6 +78,7 @@ private:
     int socket_fd_ = -1;
     int wake_fd_ = -1;  // eventfd that wakes the receive thread on untune()
     std::atomic<bool> stop_{false};
+    std::atomic<std::thread::id> receive_thread_id_{};
     std::atomic<std::uint16_t> bound_port_{0};
     std::atomic<int> effective_rcvbuf_{0};
 

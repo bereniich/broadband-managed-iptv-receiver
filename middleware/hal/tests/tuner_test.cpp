@@ -404,3 +404,47 @@ TEST(Tst206, OccupiedPortFailsAndReceiveBufferIsLogged) {
               std::string::npos)
         << log[1];
 }
+
+// Rule 5 of Section 3.9.1: tune() and untune() from the tuner's own callbacks would make the receive
+// thread join itself (an exception); they are refused and logged, and reception continues.
+TEST(Tst205, TuneAndUntuneFromATunerCallbackAreRefused) {
+    std::atomic<int> refused{0};
+    std::atomic<int> packets{0};
+    std::atomic<int> tune_results_false{0};
+    IpTuner* self = nullptr;
+    std::atomic<bool> ready{false};
+    IpTuner tuner(
+        [&](std::uint8_t*, std::size_t n) {
+            while (!ready) std::this_thread::yield();
+            self->untune();
+            packets += static_cast<int>(n);
+        },
+        [&](bool) {
+            while (!ready) std::this_thread::yield();
+            if (!self->tune(0, kSsrc)) ++tune_results_false;
+        },
+        [&](hal::LogLevel level, const char*, const std::string& message) {
+            if (level == hal::LogLevel::Error && message.find("called from a tuner callback: refused") != std::string::npos) {
+                ++refused;
+            }
+        });
+    self = &tuner;
+    ready = true;
+    ASSERT_TRUE(tuner.tune(0, kSsrc));
+    testhelp::UdpSender sender;
+    std::uint8_t cc = 0;
+    for (std::uint16_t seq = 1; seq <= 3; ++seq) {
+        std::vector<Packet> block;
+        for (int k = 0; k < 7; ++k) block.push_back(testhelp::packet(256, cc++, false));
+        testhelp::RtpHeader h;
+        h.sequence = seq;
+        h.ssrc = kSsrc;
+        sender.send(tuner.bound_port(), testhelp::rtp_datagram(h, block));
+        ASSERT_TRUE(wait_processed(tuner, seq));
+    }
+    std::this_thread::sleep_for(milliseconds(50));
+    EXPECT_EQ(packets.load(), 21);           // still tuned after every refused untune()
+    EXPECT_EQ(tune_results_false.load(), 1);  // Locked once
+    EXPECT_EQ(refused.load(), 3 + 1);
+    tuner.untune();
+}

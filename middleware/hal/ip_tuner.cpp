@@ -43,6 +43,10 @@ IpTuner::Stats IpTuner::stats() const {
 }
 
 bool IpTuner::tune(std::uint16_t udp_port, std::uint32_t ssrc) {
+    if (on_receive_thread()) {
+        log(LogLevel::Error, "tune() called from a tuner callback: refused");
+        return false;
+    }
     untune();
     std::lock_guard<std::mutex> lock(control_mutex_);
     rtp_packets_ = 0;
@@ -93,6 +97,10 @@ bool IpTuner::tune(std::uint16_t udp_port, std::uint32_t ssrc) {
 }
 
 void IpTuner::untune() {
+    if (on_receive_thread()) {
+        log(LogLevel::Error, "untune() called from a tuner callback: refused");
+        return;
+    }
     std::lock_guard<std::mutex> lock(control_mutex_);
     if (!thread_.joinable()) return;
     stop_ = true;
@@ -101,6 +109,7 @@ void IpTuner::untune() {
         // cannot happen for an eventfd counter far below its maximum; the 100 ms poll timeout ends the wait anyway
     }
     thread_.join();
+    receive_thread_id_.store(std::thread::id{});
     ::close(socket_fd_);
     ::close(wake_fd_);
     socket_fd_ = -1;
@@ -109,6 +118,7 @@ void IpTuner::untune() {
 }
 
 void IpTuner::run(int socket_fd, int wake_fd, std::uint32_t ssrc) {
+    receive_thread_id_.store(std::this_thread::get_id());
     using clock = std::chrono::steady_clock;
     alignas(16) std::uint8_t buffer[kDatagramBufferSize];  // B2, reused for every datagram
     bool locked = false;

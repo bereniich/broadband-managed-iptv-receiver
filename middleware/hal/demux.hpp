@@ -48,12 +48,13 @@ public:
     // Starts / stops delivery; a stopped section filter drops its partial section.
     bool start_filter(FilterId id);
     void stop_filter(FilterId id);
-    // Destroys the filter; no callback for it after the return. Must not be called from a callback.
+    // Destroys the filter; no callback for it after the return.
     void remove_filter(FilterId id);
 
     // Feeds `count` TS packets of 188 bytes (one RTP payload). The packets may be changed in place
-    // (descrambler, step 7). Callbacks run on the calling thread with the filter table locked: they
-    // must not call methods of this demux.
+    // (descrambler, step 7). Callbacks run on the calling thread with the filter table locked. A call
+    // of add_filter, start_filter, stop_filter, remove_filter, feed or reset_stats from a callback
+    // would deadlock; it is refused instead (logged as an error, 0 / false / no effect). stats() works.
     void feed(std::uint8_t* packets, std::size_t count);
 
     Stats stats() const;
@@ -77,6 +78,7 @@ private:
     void assemble(Filter& f, const std::uint8_t* payload, std::size_t len, bool unit_start, bool continuous);
     void process_sections(Filter& f);
     void discard_section(Filter& f, const char* reason);
+    bool refuse_in_callback(const char* method) const;
 
     LogFn log_;
     mutable std::mutex mutex_;

@@ -297,3 +297,45 @@ TEST(Tst214, NoCallbackAfterRemoveFilterReturned) {
     EXPECT_EQ(violations.load(), 0);
     EXPECT_GT(deliveries.load(), 0) << "the filters never received data; the test proves nothing";
 }
+
+// Rule 2 and 5 of Section 3.9.1 with rule 4: a demux method called from a filter callback cannot run
+// (the filter table is locked by the delivering thread); it is refused and logged instead of
+// deadlocking, stats() still answers, and the filter keeps working after the delivery.
+TEST(Tst214, CallsFromAFilterCallbackAreRefusedInsteadOfDeadlocking) {
+    std::atomic<int> errors{0};
+    Demux demux([&errors](hal::LogLevel level, const char* module, const std::string& message) {
+        if (level == hal::LogLevel::Error && std::string(module) == "HAL-DMX" &&
+            message.find("called from a filter callback: refused") != std::string::npos) {
+            ++errors;
+        }
+    });
+    int deliveries = 0;
+    std::uint64_t seen_packets = 0;
+    Demux::FilterId id = 0;
+    std::vector<std::uint8_t> other(188, 0);
+    id = demux.add_filter(Demux::FilterType::Ts, 256, -1, [&](const std::uint8_t*, std::size_t, bool) {
+        ++deliveries;
+        EXPECT_EQ(demux.add_filter(Demux::FilterType::Ts, 257, -1, [](const std::uint8_t*, std::size_t, bool) {}), 0u);
+        EXPECT_FALSE(demux.start_filter(id));
+        demux.stop_filter(id);
+        demux.remove_filter(id);
+        demux.reset_stats();
+        demux.feed(other.data(), 1);
+        seen_packets = demux.stats().ts_packets;  // works: the mutex is held by this thread
+    });
+    ASSERT_TRUE(demux.start_filter(id));
+    std::uint8_t cc = 0;
+    Packet p = testhelp::packet(256, cc++, false);
+    demux.feed(p.data(), 1);
+    EXPECT_EQ(deliveries, 1);
+    EXPECT_EQ(errors.load(), 6);
+    EXPECT_EQ(seen_packets, 1u);
+    p = testhelp::packet(256, cc++, false);
+    demux.feed(p.data(), 1);  // still added and started
+    EXPECT_EQ(deliveries, 2);
+    EXPECT_EQ(demux.stats().ts_packets, 2u);
+    demux.remove_filter(id);
+    p = testhelp::packet(256, cc++, false);
+    demux.feed(p.data(), 1);
+    EXPECT_EQ(deliveries, 2);
+}
