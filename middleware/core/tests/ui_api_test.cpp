@@ -54,7 +54,7 @@ struct Harness {
     al::KeyManager dsc{demux, logger, queue};
     al::HlsPackager out{store, logger};
     al::UiApi api{ui, logger, queue, svc, dsc};
-    al::SessionController ses{tuner, clock, logger, queue, svc, hec, psi, dsc, out,
+    al::SessionController ses{tuner, demux, clock, logger, queue, svc, hec, psi, dsc, out,
                               al::SessionController::Config{}, api.session_listener(), 42};
     testutil::StreamGen gen;
 

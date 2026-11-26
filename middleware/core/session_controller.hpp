@@ -5,7 +5,7 @@
 // T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream;
 // step 9a the errors of a start (T-04, T-05, T-07, T-08, T-13, T-21, T-30 and a demux filter that
 // cannot be opened, issue #24); step 9b no signal and the loss of the head-end (T-10, T-20, T-22,
-// T-23, T-28, T-29, T-32).
+// T-23, T-28, T-29, T-32); step 9c the statistics line every 10 s (Section 4.8.1, principle 4).
 // Every callback carries the generation of its attempt; tasks of another generation are discarded
 // before the table is consulted (rule 2). Runs on the AL worker.
 #pragma once
@@ -53,6 +53,7 @@ class SessionController {
 public:
     static constexpr std::int64_t kArchiveWindowS = 7200;   // Section 3.1, D-08
     static constexpr std::int64_t kWindowMarginS = 5;       // REQ-41
+    static constexpr int kStatsIntervalS = 10;              // Section 4.8.1: counters every 10 s
 
     struct Config {   // Section 4.2.5
         std::uint16_t rtp_port = 5004;
@@ -68,7 +69,7 @@ public:
         std::function<void(const SessionState&, const StreamDescription&)> on_stream_info;
     };
 
-    SessionController(pal::ITuner& tuner, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
+    SessionController(pal::ITuner& tuner, pal::IDemux& demux, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
                       ServiceManager& services, HeadendClient& headend, PsiParser& psi, KeyManager& keys,
                       HlsPackager& output, Config config, Listener listener,
                       std::uint32_t ssrc_seed = std::random_device{}());
@@ -101,7 +102,7 @@ public:
 
 private:
     enum class Decision { Unknown, Clear, Protected };   // protection recorded by the data path
-    enum class Timer { Keepalive, NoData, Deadline };
+    enum class Timer { Keepalive, NoData, Deadline, Stats };
 
     struct Session {
         std::uint64_t number = 0;
@@ -135,6 +136,7 @@ private:
     void on_start(std::uint64_t generation, const HeadendError& error, const StartResult* result);
     void on_tuner(std::uint64_t generation, pal::TunerStatus status);
     void first_locked();                                        // S6 of T-09 and T-10
+    void log_stats();                                           // Section 4.8.1
     void on_pat(std::uint64_t generation, std::uint16_t pmt_pid);
     void on_pmt(std::uint64_t generation, const StreamDescription& stream);
     void on_pmt_novideo(std::uint64_t generation);              // T-13
@@ -158,6 +160,7 @@ private:
     void log(pal::LogLevel level, const std::string& message);
 
     pal::ITuner& tuner_;
+    pal::IDemux& demux_;
     pal::IClock& clock_;
     pal::ILogger& logger_;
     TaskQueue& queue_;
@@ -181,6 +184,7 @@ private:
     std::optional<pal::IClock::TimerId> keepalive_timer_;
     std::optional<pal::IClock::TimerId> no_data_timer_;
     std::optional<pal::IClock::TimerId> deadline_timer_;
+    std::optional<pal::IClock::TimerId> stats_timer_;
 };
 
 }  // namespace al

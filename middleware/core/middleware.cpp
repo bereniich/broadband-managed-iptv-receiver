@@ -38,7 +38,7 @@ Middleware::Middleware(pal::Platform& platform, const MiddlewareConfig& config)
       keys_(platform.demux(), platform.logger(), queue_),
       output_(platform.hls(), platform.logger()),
       api_(platform.ui(), platform.logger(), queue_, services_, keys_),
-      session_(platform.tuner(), platform.clock(), platform.logger(), queue_, services_, headend_, psi_, keys_,
+      session_(platform.tuner(), platform.demux(), platform.clock(), platform.logger(), queue_, services_, headend_, psi_, keys_,
                output_, ses_config(config), api_.session_listener()) {
     api_.bind(session_);
     services_.set_status_handler([this](bool reachable) { api_.on_mw_status(reachable); });

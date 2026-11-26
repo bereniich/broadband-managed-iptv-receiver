@@ -33,11 +33,11 @@ const char* to_string(State state) {
     return "unknown";
 }
 
-SessionController::SessionController(pal::ITuner& tuner, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
+SessionController::SessionController(pal::ITuner& tuner, pal::IDemux& demux, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
                                      ServiceManager& services, HeadendClient& headend, PsiParser& psi,
                                      KeyManager& keys, HlsPackager& output, Config config, Listener listener,
                                      std::uint32_t ssrc_seed)
-    : tuner_(tuner), clock_(clock), logger_(logger), queue_(queue), services_(services), headend_(headend),
+    : tuner_(tuner), demux_(demux), clock_(clock), logger_(logger), queue_(queue), services_(services), headend_(headend),
       psi_(psi), keys_(keys), output_(output), config_(std::move(config)), listener_(std::move(listener)),
       rng_(ssrc_seed) {
     // Set once, before Platform::start() (Section 3.9.2). It cannot capture a session, so it reads the
@@ -50,7 +50,7 @@ SessionController::SessionController(pal::ITuner& tuner, pal::IClock& clock, pal
 }
 
 SessionController::~SessionController() {
-    for (Timer t : {Timer::Keepalive, Timer::NoData, Timer::Deadline}) cancel_timer(t);
+    for (Timer t : {Timer::Keepalive, Timer::NoData, Timer::Deadline, Timer::Stats}) cancel_timer(t);
 }
 
 StartPoint SessionController::clamp(StartPoint start, std::int64_t now) {
@@ -176,6 +176,7 @@ void SessionController::on_info(std::uint64_t g, MwError error, const ServiceInf
         fail(kReceiverError, "the tuner cannot open UDP port " + std::to_string(config_.rtp_port));   // T-04
         return;
     }
+    start_timer(Timer::Stats, kStatsIntervalS);   // while the attempt owns the tuner; RELEASE cancels it
     // The handlers below run inside AL-OUT and AL-PSI, which allow close() from a handler.
     HlsPackager::Events out;
     out.on_first_segment = [this, g] { on_first_segment(g); };
@@ -360,6 +361,11 @@ void SessionController::on_first_segment(std::uint64_t g) {
 void SessionController::on_timer(std::uint64_t g, Timer timer) {
     if (!current(g)) return;
     timer_slot(timer).reset();
+    if (timer == Timer::Stats) {
+        log_stats();
+        start_timer(Timer::Stats, kStatsIntervalS);
+        return;
+    }
     if (timer == Timer::Keepalive &&
         in({State::WaitingStream, State::ValidatingKey, State::Playing, State::NoSignal})) {
         // T-26: POST /keepalive; restart the keepalive timer.
@@ -409,7 +415,7 @@ void SessionController::on_keepalive(std::uint64_t g, const HeadendError& error)
 
 bool SessionController::release(HeadendClient::Done on_stopped) {
     // 1. Timers and pending HTTP requests of the attempt.
-    for (Timer t : {Timer::Keepalive, Timer::NoData, Timer::Deadline}) cancel_timer(t);
+    for (Timer t : {Timer::Keepalive, Timer::NoData, Timer::Deadline, Timer::Stats}) cancel_timer(t);
     if (info_token_) services_.cancel(*info_token_);
     if (start_token_) headend_.cancel(*start_token_);
     if (keepalive_token_) headend_.cancel(*keepalive_token_);
@@ -431,6 +437,22 @@ bool SessionController::release(HeadendClient::Done on_stopped) {
     return false;
 }
 
+void SessionController::log_stats() {
+    // Section 4.8.1, principle 4: the counters of the tuner, the demux, the task queue (B4), AL-PSI and
+    // AL-OUT (B5). Format of HANDOVER §5, extended by the discarded sections and segments.
+    const pal::ITuner::Stats t = tuner_.stats();
+    const pal::IDemux::Stats d = demux_.stats();
+    log(pal::LogLevel::Info, "stats rtp_packets=" + std::to_string(t.rtp_packets) +
+                                 " rtp_lost=" + std::to_string(t.rtp_lost) +
+                                 " rtp_invalid=" + std::to_string(t.rtp_invalid) +
+                                 " ts_packets=" + std::to_string(d.ts_packets) +
+                                 " sync_errors=" + std::to_string(d.sync_errors) +
+                                 " cc_errors=" + std::to_string(d.cc_errors) +
+                                 " dropped_tasks=" + std::to_string(queue_.dropped_data_tasks()) +
+                                 " discarded_sections=" + std::to_string(psi_.discarded_sections()) +
+                                 " discarded_segments=" + std::to_string(output_.discarded_segments()));
+}
+
 void SessionController::fail(const std::string& code, const std::string& message) {
     release();
     s_->error = HeadendError{code, message};
@@ -444,6 +466,7 @@ std::optional<pal::IClock::TimerId>& SessionController::timer_slot(Timer timer) 
     switch (timer) {
         case Timer::Keepalive: return keepalive_timer_;
         case Timer::NoData: return no_data_timer_;
+        case Timer::Stats: return stats_timer_;
         case Timer::Deadline: break;
     }
     return deadline_timer_;

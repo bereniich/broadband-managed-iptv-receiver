@@ -22,11 +22,13 @@
 #include "headend_client.hpp"
 #include "hls_packager.hpp"
 #include "key_manager.hpp"
+#include "psi_builder.hpp"
 #include "psi_parser.hpp"
 #include "service_manager.hpp"
 #include "session_controller.hpp"
 #include "stream_gen.hpp"
 #include "task_queue.hpp"
+#include "ts_builder.hpp"
 
 namespace {
 
@@ -54,7 +56,7 @@ struct Harness {
     al::HlsPackager out{store, logger};
     std::vector<al::SessionState> states;
     std::vector<std::pair<al::SessionState, al::StreamDescription>> infos;
-    al::SessionController ses{tuner, clock, logger, queue, svc, hec, psi, dsc, out,
+    al::SessionController ses{tuner, demux, clock, logger, queue, svc, hec, psi, dsc, out,
                               al::SessionController::Config{}, listener(), 42};
     testutil::StreamGen gen;
 
@@ -643,6 +645,46 @@ TEST(Tst145, SuccessResetsTheCount) {   // (4) T-27
     EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 5u);
     EXPECT_EQ(h.states.back().state, al::State::Playing);
     EXPECT_EQ(error_code(h, 1), "");
+}
+
+// ---------------------------------------------------------------- step 9c: statistics every 10 s
+
+std::vector<std::string> stats_lines(const Harness& h) {
+    std::vector<std::string> out;
+    for (const auto& l : h.logger.lines()) {
+        if (std::string(l.module) == "AL-SES" && l.message.rfind("stats ", 0) == 0) out.push_back(l.message);
+    }
+    return out;
+}
+
+TEST(Tst148, StatsLineEvery10s) {   // Section 4.8.1, principle 4; HANDOVER §5 format
+    Harness h;
+    h.tuner.set_stats(pal::ITuner::Stats{1000, 2, 3});
+    h.ses.play("svc-1", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    Bytes bad_pat = testutil::make_pat({{1, 4096}});
+    bad_pat[bad_pat.size() - 1] ^= 0x01;   // CRC error: discarded by AL-PSI
+    h.feed(testutil::packetize_section(0, bad_pat, 0));
+    h.feed(h.gen.frames(51));   // playing
+    h.advance(9999);
+    EXPECT_TRUE(stats_lines(h).empty());
+    h.advance(1);   // 10 s after T-03
+    const pal::IDemux::Stats d = h.demux.stats();   // the bad PAT also repeats a continuity counter
+    ASSERT_EQ(stats_lines(h).size(), 1u);
+    EXPECT_EQ(stats_lines(h)[0], "stats rtp_packets=1000 rtp_lost=2 rtp_invalid=3 ts_packets=" +
+                                     std::to_string(d.ts_packets) + " sync_errors=" + std::to_string(d.sync_errors) +
+                                     " cc_errors=" + std::to_string(d.cc_errors) +
+                                     " dropped_tasks=0 discarded_sections=1 discarded_segments=0 session=1 generation=1");
+    EXPECT_GT(d.ts_packets, 0u);
+    h.advance(10000);
+    h.advance(10000);
+    EXPECT_EQ(stats_lines(h).size(), 3u);   // at 10, 20 and 30 s
+    h.ses.stop();   // RELEASE cancels the statistics timer
+    h.settle();
+    h.advance(30000);
+    EXPECT_EQ(stats_lines(h).size(), 3u);
 }
 
 }  // namespace
