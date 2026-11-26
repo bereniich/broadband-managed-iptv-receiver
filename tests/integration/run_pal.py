@@ -6,7 +6,7 @@ Starts P3 (headend) and P4 (mw_server) with the configuration of scripts/start.s
 checks the expected results of Section 5.4.3 and stops both processes with SIGTERM.
 
 Usage (Python standard library only, NFR-11), from any directory:
-  tests/integration/run_pal.py [--tests 501,502,504,511,512] [--config server/config.json]
+  tests/integration/run_pal.py [--tests 501,502,503,504,511,512] [--config server/config.json]
                                [--build build] [--evidence]
 
   --evidence  writes TESTOUT, FFPROBE and LOG files to tests/evidence/<TST-id>/ with the date and the
@@ -16,10 +16,12 @@ Usage (Python standard library only, NFR-11), from any directory:
 Tests:
   TST-501  services and EPG against 5.2.3 / 5.2.4 (the contract check needs tests/tools/contract_check.py)
   TST-502  /start svc-1 live, 15 s RTP, /stop, 2 s more; headers, gaps, first datagram, bitrate, ffprobe
+  TST-503  /start svc-1 at the start of the previous event: first decodable frame as PNG (PHOTO: time code
+           T mod 600 and the title of the event); svc-3: scrambling bits per PID and ffprobe of PAT / PMT
   TST-504  expiry without keepalive (20 s) and 60 s with a keepalive every 5 s
   TST-511  pal_dump 10 s with svc-1 live: PAT / PMT, statistics, ffprobe, decode check
   TST-512  pal_dump with K3, KX and no key on svc-3 (needs svc-3.enc.ts from package_ts)
-TST-503 needs a person to read the burned-in time code (PHOTO) and is not run here.
+TST-503 and TST-512 end with "passed pending the PHOTO inspection": a person checks the PNG they name.
 
 Needs: build/bin/headend, build/bin/mw_server, build/bin/pal_dump, ffmpeg / ffprobe, the content of
 Section 5.2.1, free ports 8080, 8081 and 5004. The exit code is 0 if every executed test passed.
@@ -208,6 +210,72 @@ def tst502(ctx):
     return res
 
 
+def scan_scrambling(path):
+    """Per PID: [packets, packets with bits '00', packets with a payload of >= 16 bytes, of those with '10']."""
+    stats = {}
+    with open(path, 'rb') as f:
+        data = f.read()
+    for i in range(0, len(data) - 187, 188):
+        p = data[i:i + 188]
+        if p[0] != 0x47:
+            continue
+        pid = ((p[1] & 0x1F) << 8) | p[2]
+        bits = p[3] >> 6
+        afc = (p[3] >> 4) & 0x3
+        offset = 4 + (1 + p[4] if afc & 0x2 else 0)
+        payload = 188 - offset if afc & 0x1 and offset < 188 else 0
+        s = stats.setdefault(pid, [0, 0, 0, 0])
+        s[0] += 1
+        s[1] += bits == 0
+        if payload >= 16:
+            s[2] += 1
+            s[3] += bits == 2
+    return stats
+
+
+def tst503(ctx):
+    res = Result(503)
+    now = int(time.time())
+    T = now - now % 300 - 300  # start of the previous event (Section 5.4.3)
+    cfg = json.load(open(os.path.join(REPO, 'content', 'services.json')))
+    svc1 = next(s for s in cfg['services'] if s['service_id'] == 'svc-1')
+    title = svc1['programs'][0 if T % 600 < 300 else 1]['title']
+    ts = os.path.join(ctx.tmp, 'tst503-svc1.ts')
+    cap = capture(5.5, ts)
+    time.sleep(0.3)
+    status, body = ctx.session.start('svc-1', start=T)
+    res.check(status == 200 and body.get('start_time') == T, '1: /start svc-1 with T = %d: start_time = %s' % (T, body.get('start_time')))
+    out, _ = cap.communicate()
+    ctx.session.stop(body.get('session_id'))
+    png = os.path.join(ctx.tmp, 'tst503-first-frame.png')
+    subprocess.run(['ffmpeg', '-v', 'quiet', '-y', '-i', ts, '-frames:v', '1', png])
+    res.check(os.path.exists(png), '2: first decodable frame written as PNG')
+    res.note('PNG for inspection: time code %02d:%02d +/- 1 s and "%s": %s' % (T % 600 // 60, T % 60, title, png))
+    ctx.photos[503] = png
+    ts3 = os.path.join(ctx.tmp, 'tst503-svc3.ts')
+    cap = capture(5.5, ts3)
+    time.sleep(0.3)
+    status, body = ctx.session.start('svc-3', start=T)
+    out3, _ = cap.communicate()
+    ctx.session.stop(body.get('session_id'))
+    res.files['rtp_capture svc-3'] = out3
+    stats = scan_scrambling(ts3)
+    for pid in (0, 4096):
+        s = stats.get(pid, [0, 0, 0, 0])
+        res.check(s[0] > 0 and s[1] == s[0], "3: PID %d: %d packets, all '00'" % (pid, s[0]))
+    for pid in (256, 257):
+        s = stats.get(pid, [0, 0, 0, 0])
+        res.check(s[2] > 0 and s[3] == s[2], "3: PID %d: %d of %d packets with >= 16 payload bytes have '10'" % (pid, s[3], s[2]))
+    info, raw = ffprobe(ts3)
+    res.files['ffprobe'] = raw
+    programs = info.get('programs', [])
+    res.check(len(programs) == 1 and programs[0].get('pmt_pid') == 4096 and programs[0].get('nb_streams', 0) >= 2,
+              '3: ffprobe reads PAT and PMT of the encrypted stream (program with PMT PID 4096 and its streams)')
+    if not res.failures:
+        res.status = 'passed pending the PHOTO inspection'
+    return res
+
+
 def tst504(ctx):
     res = Result(504)
     cap = capture(20.5)
@@ -323,7 +391,7 @@ def tst512(ctx):
     return res
 
 
-TESTS = {501: tst501, 502: tst502, 504: tst504, 511: tst511, 512: tst512}
+TESTS = {501: tst501, 502: tst502, 503: tst503, 504: tst504, 511: tst511, 512: tst512}
 
 
 class Context:
@@ -332,7 +400,7 @@ class Context:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    parser.add_argument('--tests', default='501,502,504,511,512')
+    parser.add_argument('--tests', default='501,502,503,504,511,512')
     parser.add_argument('--config', default=os.path.join(REPO, 'server', 'config.json'))
     parser.add_argument('--build', default=os.path.join(REPO, 'build'))
     parser.add_argument('--evidence', action='store_true')
