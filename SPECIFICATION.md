@@ -3760,14 +3760,14 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 19 | 0 | 81 | 0 |
+| Unit | 100 | 43 | 0 | 57 | 0 |
 | Integration | 22 | 1 | 0 | 21 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 20 | 0 | 148 | 0 |
+| **Total** | 168 | 44 | 0 | 124 | 0 |
 
-Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
+Requirements verified: 4 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
-Verified requirements: REQ-26, REQ-57, REQ-60.
+Verified requirements: REQ-26, REQ-32, REQ-57, REQ-60.
 
 #### 5.9.3 Results
 
@@ -3775,30 +3775,30 @@ The first column is printed in bold so that it is not taken for the definition o
 
 | Test | Level | Status | Date | Commit | Actual result | Evidence |
 |---|---|---|---|---|---|---|
-| **TST-101** | Unit | not executed | — | — | — | — |
-| **TST-102** | Unit | not executed | — | — | — | — |
-| **TST-103** | Unit | not executed | — | — | — | — |
-| **TST-104** | Unit | not executed | — | — | — | — |
-| **TST-105** | Unit | not executed | — | — | — | — |
-| **TST-106** | Unit | not executed | — | — | — | — |
-| **TST-111** | Unit | not executed | — | — | — | — |
-| **TST-112** | Unit | not executed | — | — | — | — |
-| **TST-113** | Unit | not executed | — | — | — | — |
+| **TST-101** | Unit | passed | 2026-11-27 | d49a08e6 | 7 test functions passed: helper CRC-32 of `123456789` = `0x0376E6E7`, helper sections equal the PAT / PMT of FFmpeg; (a) program 1 → PMT PID 4096; (b) program 0 (PID 16) skipped, program 2 → PMT PID 768; PAT of FFmpeg → program 1, PMT PID 4096 | `tests/evidence/TST-101/2026-11-27_d49a08e6_testout.txt` |
+| **TST-102** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: through the PAT filter, changed CRC byte and `section_length` larger than the data → no `EV-PAT`, one warning each (2); the `table_id 0x02` section is not delivered by the PAT filter (`table_id 0x00`, Section 3.9.2), so it gives neither an event nor a warning (deviation from the text of TST-102, issue #23); then the valid section → `EV-PAT` with PMT PID 4096; `parse_pat` rejects all three variants | `tests/evidence/TST-102/2026-11-27_d49a08e6_testout.txt` |
+| **TST-103** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed: (a) PCR 256, video 256 / `0x1B`, audio 257 / `0x0F`; (b) program 2, PCR 1025, video 1025, audio 1026; (c) video 301, audio 300, stream `0x06` with descriptor ignored; PMT of FFmpeg → 256 / 257 | `tests/evidence/TST-103/2026-11-27_d49a08e6_testout.txt` |
+| **TST-104** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: (d) only `0x0F` → `EV-PMT-NOVIDEO`; (e) only `0x1B` → video 256, no audio, stream accepted; (a) with one CRC byte changed → discarded, no event, one warning | `tests/evidence/TST-104/2026-11-27_d49a08e6_testout.txt` |
+| **TST-105** | Unit | passed | 2026-11-27 | d49a08e6 | 13 test functions passed: filter order section PID 0 `table_id 0x00`, section on the PMT PID `table_id 0x02`, TS filters on exactly PID 0, the PMT PID, video and audio: `svc-1.ts` 4096 / 256 / 257, `test/svc-2.altpid.ts` 768 / 1025 / 1026; PAT / PMT repetitions cause no further filter call | `tests/evidence/TST-105/2026-11-27_d49a08e6_testout.txt` |
+| **TST-106** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: one `stream_info` per session; for `svc-1.ts` and `test/svc-2.altpid.ts` one PAT and one PMT log line with program, PMT PID, PCR PID, video and audio PID and stream type: 1 / 4096 / 256 / 256 `0x1B` / 257 `0x0F` and 2 / 768 / 1025 / 1025 `0x1B` / 1026 `0x0F`, equal to `ffprobe` (program, `pmt_pid`, `pcr_pid`, stream ids `0x100` / `0x101` and `0x401` / `0x402`, h264 / aac); the content `stream_info` values are checked by Tst105.FullFilterOrderContent | `tests/evidence/TST-106/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-106/2026-11-27_d49a08e6_ffprobe.txt` |
+| **TST-111** | Unit | passed | 2026-11-27 | d49a08e6 | 3 test functions passed: (a) all video packets `scrambled = false` → `clear`; (b) adaptation-only packet and 10-byte payload not used for the decision, then 184 payload bytes with `scrambled = true` → `protected`; payload offset 4 / 5 + `adaptation_field_length`, 16-byte rule | `tests/evidence/TST-111/2026-11-27_d49a08e6_testout.txt` |
+| **TST-112** | Unit | passed | 2026-11-27 | d49a08e6 | 3 test functions passed: K3 and K3L stored as the same 16 bytes `3A 7F … 28`; KF1 (31 characters) and KF2 (`G`) rejected, nothing stored (response `INVALID_KEY_FORMAT` of AL-API in TST-157); log mask `3A7F…` / `C04E…` | `tests/evidence/TST-112/2026-11-27_d49a08e6_testout.txt` |
+| **TST-113** | Unit | passed | 2026-11-27 | d49a08e6 | 6 test functions passed: `svc-3.enc.ts` (packaged by `package_ts`, PR #17) with K3: `EV-KEY-OK` after exactly 3 checked video PES starts received with `scrambled = true`; synthetic stream: a PES start with a 10-byte payload is not counted (accepted at packet 6, PES starts 1, 4, 6); reference D-04 of the test code checked with FIPS-197 C.1 and SP 800-38A F.2.1 / F.2.2 | `tests/evidence/TST-113/2026-11-27_d49a08e6_testout.txt` |
 | **TST-114** | Unit | not executed | — | — | — | — |
-| **TST-115** | Unit | not executed | — | — | — | — |
+| **TST-115** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: no key for `svc-4`; rejecting the key of `svc-4` removes only that entry and overwrites its 16 bytes with zeros (test hook of the key store); K3 still stored for `svc-3` | `tests/evidence/TST-115/2026-11-27_d49a08e6_testout.txt` |
 | **TST-116** | Unit | not executed | — | — | — | — |
 | **TST-121** | Unit | not executed | — | — | — | — |
 | **TST-122** | Unit | not executed | — | — | — | — |
-| **TST-123** | Unit | not executed | — | — | — | — |
+| **TST-123** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed (20 s, 19 segments): `#EXT-X-VERSION:3`, `#EXT-X-TARGETDURATION:2`, `#EXT-X-MEDIA-SEQUENCE` = first listed, 1 – 6 listed, `#EXTINF` with 3 decimals, no `#EXT-X-ENDLIST`; every listed file exists with whole packets; `seg-(k−3).ts` removed when `seg-k` is first listed, `remove_file` right before each `write_file`; at most 8 segment files (8 at the end: `seg-11` … `seg-18`) | `tests/evidence/TST-123/2026-11-27_d49a08e6_testout.txt` |
 | **TST-124** | Unit | not executed | — | — | — | — |
-| **TST-125** | Unit | not executed | — | — | — | — |
+| **TST-125** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: 5 s with `write_enabled = false` → no segment and no playlist, 4 segments held; after `set_write_enabled(true)` written in order from `seg-0.ts`, which begins with the first key-frame start after `open`; a fifth held segment drops the oldest one with a warning | `tests/evidence/TST-125/2026-11-27_d49a08e6_testout.txt` |
 | **TST-126** | Unit | not executed | — | — | — | — |
 | **TST-127** | Unit | not executed | — | — | — | — |
-| **TST-131** | Unit | not executed | — | — | — | — |
+| **TST-131** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: response `{"session": 1}` before the first event; calls `untune`, `tune({5004, ssrc})`, `open_session(1)`, PAT filter, `POST /start` with the same `ssrc`; events `starting`, `waiting_stream`, `playing` (synthetic stream and `svc-1.ts`); keepalives at 5 and 10 s; a new `play` releases session 1 (`stopped`) and ignores its queued tasks | `tests/evidence/TST-131/2026-11-27_d49a08e6_testout.txt` |
 | **TST-132** | Unit | not executed | — | — | — | — |
 | **TST-133** | Unit | not executed | — | — | — | — |
 | **TST-134** | Unit | not executed | — | — | — | — |
-| **TST-135** | Unit | not executed | — | — | — | — |
+| **TST-135** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: clock at 1795000000; `T` = `t − 8000`, `t − 7195`, `t − 60`, `t`, `t + 100` → `session_state.start` and `/start` body `t − 7195`, `t − 7195`, `t − 60`, `"live"`, `"live"` | `tests/evidence/TST-135/2026-11-27_d49a08e6_testout.txt` |
 | **TST-136** | Unit | not executed | — | — | — | — |
 | **TST-137** | Unit | not executed | — | — | — | — |
 | **TST-138** | Unit | not executed | — | — | — | — |
@@ -3809,17 +3809,17 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-143** | Unit | not executed | — | — | — | — |
 | **TST-144** | Unit | not executed | — | — | — | — |
 | **TST-145** | Unit | not executed | — | — | — | — |
-| **TST-146** | Unit | not executed | — | — | — | — |
+| **TST-146** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed: `shutdown` sends `POST /stop` for `hs-000017`; completion reported (a) at the response after 100 ms, (b) at the timeout after 2 000 ms; without a session no `/stop`; key bytes zeroed at the end | `tests/evidence/TST-146/2026-11-27_d49a08e6_testout.txt` |
 | **TST-147** | Unit | not executed | — | — | — | — |
-| **TST-148** | Unit | not executed | — | — | — | — |
-| **TST-151** | Unit | not executed | — | — | — | — |
-| **TST-152** | Unit | not executed | — | — | — | — |
-| **TST-153** | Unit | not executed | — | — | — | — |
-| **TST-154** | Unit | not executed | — | — | — | — |
-| **TST-155** | Unit | not executed | — | — | — | — |
-| **TST-156** | Unit | not executed | — | — | — | — |
-| **TST-157** | Unit | not executed | — | — | — | — |
-| **TST-158** | Unit | not executed | — | — | — | — |
+| **TST-148** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed: 10 000 data and 5 control tasks → 8 192 data and all 5 control tasks queued, 1 808 dropped; 3 000 more while the clock advances 3 s → 3 drop warnings (at 1 000, 2 000 and 3 000 ms, tag `AL-MAIN`); running the queue executes the 8 197 tasks in post order, no dropped task, no state change | `tests/evidence/TST-148/2026-11-27_d49a08e6_testout.txt` |
+| **TST-151** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: `GET /services` at 0, 5, 10 and 15 s (none at 4 999 ms after each try), `mw_status` `false` once after the first failure and `true` once after the success; the list of Section 3.2.1 stored; timeout 800 ms | `tests/evidence/TST-151/2026-11-27_d49a08e6_testout.txt` |
+| **TST-152** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: IN-05 → only the valid entry `svc-1` in the list, 6 log lines `discarded service entry`; a response that is not JSON, has no `services` array or is an HTTP error → `mw_status` `false` and a new request after 5 s | `tests/evidence/TST-152/2026-11-27_d49a08e6_testout.txt` |
+| **TST-153** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: after the list was loaded every MW request fails: the last valid list (4 services) is kept; `get_epg` → `MW_UNREACHABLE`; `mw_status` `false` | `tests/evidence/TST-153/2026-11-27_d49a08e6_testout.txt` |
+| **TST-154** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: IN-06 → events without title, overlapping and unsorted discarded (3 log lines), 3 events kept; non-JSON → `MW_UNREACHABLE`; response delayed by 900 ms → `MW_UNREACHABLE` at 800 ms; two valid `get_epg` → two `GET /epg` (no cache) | `tests/evidence/TST-154/2026-11-27_d49a08e6_testout.txt` |
+| **TST-155** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: two `play svc-1` → one `GET /services/svc-1` and two `POST /start`; service info cached after the first success | `tests/evidence/TST-155/2026-11-27_d49a08e6_testout.txt` |
+| **TST-156** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: request bodies equal the JSON of Section 3.3 (`ssrc` 3054235519 / 1180331842 as unsigned 32-bit); `200` → result; `400` with an error object → its code; `404 SESSION_NOT_FOUND` on `stop` → success; transport failure, invalid body and no answer → `HEADEND_UNREACHABLE`, the last at 2 000 ms | `tests/evidence/TST-156/2026-11-27_d49a08e6_testout.txt` |
+| **TST-157** | Unit | passed | 2026-11-27 | d49a08e6 | 7 test functions passed: one response with the same `id` per command of 3.6.2; `get_status` → `{"state": "idle"}` before the first `play`; IN-07 → `INVALID_COMMAND` where the `id` is readable (`not json`, random bytes and unreadable id: no response); a new client receives `mw_status` (before the first MW result: the first broadcast, issue #25); no full key in frames or logs | `tests/evidence/TST-157/2026-11-27_d49a08e6_testout.txt` |
+| **TST-158** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed and `Tst158.MainExitCode`: `middleware.json` with all keys of Section 4.2.5 read; missing keys → defaults; IN-11 (missing file, invalid JSON, invalid value) → error naming the file, `dtv-middleware` exit code 1; configured values reach the modules (composition root) | `tests/evidence/TST-158/2026-11-27_d49a08e6_testout.txt` |
 | **TST-159** | Unit | not executed | — | — | — | — |
 | **TST-201** | Unit | not executed | — | — | — | — |
 | **TST-202** | Unit | not executed | — | — | — | — |
