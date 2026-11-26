@@ -1,5 +1,5 @@
-// Unit tests of PAL-FS (Section 5.3.3): TST-224 (REQ-23 atomic files, HLR-17, B7). The step
-// "Platform::start()" runs here as HlsStore::reset(), which Platform::start() calls.
+// Unit tests of PAL-FS (Section 5.3.3): TST-224 (REQ-23 atomic files, HLR-17, B7). The steps of
+// TST-224 use the IHlsStore of a Platform from create_platform; further functions test HlsStore alone.
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "pal_hls_store.hpp"
-#include "test_util.hpp"
+#include "platform_fixture.hpp"
 
 namespace {
 
@@ -39,17 +39,17 @@ void write_text(const fs::path& path, const std::string& text) {
 
 // Steps 1 – 5 of TST-224.
 TEST(Tst224, StartEmptiesHlsDirWritesAreAtomicAndCloseRemovesTheSession) {
-    TempDir tmp;
-    const fs::path hls = tmp.path() / "m15-hls";
+    testutil::TestPlatform t;
+    const fs::path hls = t.config.hls_dir;
     write_text(hls / "1" / "seg-7.ts", "old segment");
     write_text(hls / "1" / "index.m3u8", "#EXTM3U");
     write_text(hls / "3" / "deep" / "x.ts", "old");
     write_text(hls / "stray.txt", "old");
-    RecordingLogger log;
-    HlsStore store(hls.string(), &log);
+    pal::Platform& p = t.create();
+    pal::IHlsStore& store = p.hls();
 
     // 1: hls_dir empty.
-    ASSERT_TRUE(store.reset());
+    ASSERT_TRUE(p.start());
     EXPECT_TRUE(fs::is_directory(hls));
     EXPECT_TRUE(names_in(hls).empty());
 
@@ -109,7 +109,18 @@ TEST(Tst224, StartEmptiesHlsDirWritesAreAtomicAndCloseRemovesTheSession) {
     store.close_session(1);
     EXPECT_FALSE(fs::exists(session));
     EXPECT_TRUE(fs::is_directory(hls));
-    EXPECT_EQ(log.count(LogLevel::Error, "PAL-FS", ""), 0);
+    EXPECT_EQ(t.log_text().find("[PAL-FS]"), std::string::npos);
+    p.stop();
+}
+
+// Platform::start() returns false if hls_dir cannot be created (Section 3.9.2).
+TEST(Tst224, PlatformStartFailsIfHlsDirCannotBeCreated) {
+    testutil::TestPlatform t;
+    write_text(t.dir.path() / "plain-file", "x");
+    t.config.hls_dir = (t.dir.path() / "plain-file" / "hls").string();
+    pal::Platform& p = t.create();
+    EXPECT_FALSE(p.start());
+    EXPECT_NE(t.log_text().find("ERROR [PAL-FS] cannot create hls_dir"), std::string::npos);
 }
 
 // open_session replaces a directory left from before by an empty one; a write of an empty file works.

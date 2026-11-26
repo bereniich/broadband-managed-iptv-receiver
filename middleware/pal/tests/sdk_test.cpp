@@ -1,7 +1,7 @@
 // Unit tests of PAL-SDK (Section 5.3.3): TST-221 without the key part (step 4 of TST-221 follows with
-// HAL-DSC). The DTV SDK objects are used directly here; with create_platform they are reached through
-// Platform::tuner() and Platform::demux(). Data enters through the real tuner: RTP datagrams to
-// 127.0.0.1, as the head-end sends them.
+// HAL-DSC). The DTV SDK is taken from a Platform of create_platform with a test configuration, as the
+// precondition of TST-221 says. Data enters through the real tuner: RTP datagrams to 127.0.0.1, as the
+// head-end sends them.
 #include <gtest/gtest.h>
 
 #include <arpa/inet.h>
@@ -14,8 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "pal_sdk.hpp"
-#include "test_util.hpp"
+#include "platform_fixture.hpp"
 #include "ts_helper.hpp"
 
 namespace {
@@ -28,7 +27,6 @@ using pal::TunerStatus;
 using std::chrono::milliseconds;
 using testhelp::Bytes;
 using testhelp::Packet;
-using testutil::RecordingLogger;
 using testutil::wait_until;
 
 constexpr std::uint32_t kSsrc = 1180331842;
@@ -59,12 +57,27 @@ struct Sink {
     }
 };
 
+// The DTV SDK as the AL gets it: Platform::tuner() and Platform::demux() of a started platform.
 class Sdk {
 public:
-    explicit Sdk(pal::ILogger* log, hal::IpTuner::Options options = hal::IpTuner::Options{})
-        : demux(log), tuner(demux, log, options) {}
-    pal::SdkDemux demux;  // declared first: the tuner feeds it
-    pal::SdkTuner tuner;
+    Sdk() : p(t.create()), demux(p.demux()), tuner(p.tuner()) {
+        if (!p.start()) throw std::runtime_error("Platform::start failed");
+    }
+    std::uint16_t port() { return t.linux_platform().tuner_port(); }
+    // Number of log lines "<LEVEL> [<module>] …<text>…".
+    int log_count(const std::string& level, const std::string& module, const std::string& text) const {
+        std::istringstream in(t.log_text());
+        int n = 0;
+        for (std::string line; std::getline(in, line);) {
+            if (line.find(" " + level + " [" + module + "] ") != std::string::npos && line.find(text) != std::string::npos) ++n;
+        }
+        return n;
+    }
+
+    testutil::TestPlatform t;
+    pal::Platform& p;
+    pal::IDemux& demux;
+    pal::ITuner& tuner;
 };
 
 // Sends TS packets as RTP datagrams of up to 7 packets with consecutive sequence numbers.
@@ -103,8 +116,7 @@ std::vector<Packet> video_packets(int count, std::uint8_t& cc, bool scrambled = 
 
 // Step 1: an invalid configuration gives 0; valid filters get distinct non-zero handles.
 TEST(Tst221, OpenFilterReturnsZeroForPid8192AndOtherInvalidConfigurations) {
-    RecordingLogger log;
-    Sdk sdk(&log);
+    Sdk sdk;
     Sink sink;
     EXPECT_EQ(sdk.demux.open_filter({FilterType::Ts, 8192}, sink.callback()), 0u);
     EXPECT_EQ(sdk.demux.open_filter({FilterType::Section, 8192, 0}, sink.callback()), 0u);
@@ -127,10 +139,9 @@ TEST(Tst221, OpenFilterReturnsZeroForPid8192AndOtherInvalidConfigurations) {
 // stop_filter or close_filter. Section filters deliver complete sections, TS filters whole packets
 // with the scrambled flag of transport_scrambling_control.
 TEST(Tst221, NoDataBeforeStartFilterAndNoneAfterStopOrClose) {
-    RecordingLogger log;
-    Sdk sdk(&log);
+    Sdk sdk;
     ASSERT_TRUE(sdk.tuner.tune({0, kSsrc}));
-    Sender sender(sdk.tuner.bound_port());
+    Sender sender(sdk.port());
     Sink ts_sink, section_sink;
     const auto ts = sdk.demux.open_filter({FilterType::Ts, 256}, ts_sink.callback());
     const auto pat = sdk.demux.open_filter({FilterType::Section, 0, 0x00}, section_sink.callback());
@@ -193,10 +204,9 @@ TEST(Tst221, NoDataBeforeStartFilterAndNoneAfterStopOrClose) {
 // Step 4 without the key: the statistics of ITuner and IDemux equal the counters of the HAL for a
 // known input, and tune() starts a new set of counters.
 TEST(Tst221, StatisticsEqualTheHalCountersAndTuneClearsThem) {
-    RecordingLogger log;
-    Sdk sdk(&log);
+    Sdk sdk;
     ASSERT_TRUE(sdk.tuner.tune({0, kSsrc}));
-    Sender sender(sdk.tuner.bound_port());
+    Sender sender(sdk.port());
 
     std::uint8_t cc = 0;
     std::vector<Packet> packets = video_packets(14, cc);  // 2 datagrams
@@ -229,13 +239,10 @@ TEST(Tst221, StatisticsEqualTheHalCountersAndTuneClearsThem) {
 }
 
 // ITuner contract of Section 3.9.2: Unlocked after tune() without a callback, Locked at the first
-// accepted packet, Unlocked after the unlock time (shortened here), on the receive thread with SIGINT
-// and SIGTERM blocked; tune() returns false for a port in use, and the HAL error reaches the PAL log.
+// accepted packet, Unlocked after 3 s without packets, on the receive thread with SIGINT and SIGTERM
+// blocked; tune() returns false for a port in use, and the HAL error reaches the PAL log.
 TEST(Tst221, TunerStatusThroughTheSdkAndPortInUse) {
-    RecordingLogger log;
-    hal::IpTuner::Options options;
-    options.unlock_after = milliseconds(300);
-    Sdk sdk(&log, options);
+    Sdk sdk;
     std::mutex mutex;
     std::vector<TunerStatus> statuses;
     std::atomic<bool> blocked{true};
@@ -245,15 +252,15 @@ TEST(Tst221, TunerStatusThroughTheSdkAndPortInUse) {
         statuses.push_back(s);
     });
     ASSERT_TRUE(sdk.tuner.tune({0, kSsrc}));
-    EXPECT_EQ(log.count(LogLevel::Info, "HAL-TUN", "SO_RCVBUF requested 1048576"), 1);
-    Sender sender(sdk.tuner.bound_port());
+    EXPECT_EQ(sdk.log_count("INFO", "HAL-TUN", "SO_RCVBUF requested 1048576"), 1);
+    Sender sender(sdk.port());
     std::uint8_t cc = 0;
     sender.send(video_packets(7, cc));
     auto count = [&] {
         std::lock_guard<std::mutex> lock(mutex);
         return statuses.size();
     };
-    ASSERT_TRUE(wait_until([&] { return count() == 2; }));
+    ASSERT_TRUE(wait_until([&] { return count() == 2; }, milliseconds(4000)));
     {
         std::lock_guard<std::mutex> lock(mutex);
         EXPECT_EQ(statuses, (std::vector<TunerStatus>{TunerStatus::Locked, TunerStatus::Unlocked}));
@@ -269,7 +276,7 @@ TEST(Tst221, TunerStatusThroughTheSdkAndPortInUse) {
     getsockname(busy, reinterpret_cast<sockaddr*>(&addr), &len);
     const std::uint16_t port = ntohs(addr.sin_port);
     EXPECT_FALSE(sdk.tuner.tune({port, kSsrc}));
-    EXPECT_EQ(log.count(LogLevel::Error, "HAL-TUN", "cannot open UDP port 127.0.0.1:" + std::to_string(port)), 1);
+    EXPECT_EQ(sdk.log_count("ERROR", "HAL-TUN", "cannot open UDP port 127.0.0.1:" + std::to_string(port)), 1);
     close(busy);
 }
 
@@ -277,8 +284,7 @@ TEST(Tst221, TunerStatusThroughTheSdkAndPortInUse) {
 // receive thread cannot join itself, the filter table is locked during delivery); it is refused and
 // logged instead of hanging or throwing, and reception continues.
 TEST(Tst221, CallsFromSdkCallbacksAreRefusedWithoutDeadlock) {
-    RecordingLogger log;
-    Sdk sdk(&log);
+    Sdk sdk;
     std::atomic<int> refused_calls{0};
     IDemux::FilterId id = 0;
     std::atomic<bool> id_set{false};
@@ -298,15 +304,15 @@ TEST(Tst221, CallsFromSdkCallbacksAreRefusedWithoutDeadlock) {
     });
     ASSERT_TRUE(sdk.demux.start_filter(id));
     ASSERT_TRUE(sdk.tuner.tune({0, kSsrc}));
-    Sender sender(sdk.tuner.bound_port());
+    Sender sender(sdk.port());
     std::uint8_t cc = 0;
     sender.send(video_packets(7, cc));
     ASSERT_TRUE(wait_until([&] { return sink.size() == 7; }));
     sender.send(video_packets(7, cc));
     ASSERT_TRUE(wait_until([&] { return sink.size() == 14; }));  // still open, still tuned
     EXPECT_EQ(refused_calls.load(), 2 * 14 + 1);
-    EXPECT_EQ(log.count(LogLevel::Error, "HAL-DMX", "called from a filter callback: refused"), 3 * 14);
-    EXPECT_EQ(log.count(LogLevel::Error, "HAL-TUN", "called from a tuner callback: refused"), 2);
+    EXPECT_EQ(sdk.log_count("ERROR", "HAL-DMX", "called from a filter callback: refused"), 3 * 14);
+    EXPECT_EQ(sdk.log_count("ERROR", "HAL-TUN", "called from a tuner callback: refused"), 2);
     sdk.tuner.untune();
 }
 

@@ -55,6 +55,9 @@ public:
 
     // The port actually bound (tests and tools; 0 when untuned).
     std::uint16_t bound_port() const { return tuner_.bound_port(); }
+    // Platform::stop(): untunes and refuses every later tune(), so that no tuner or demux callback
+    // follows the stop (Section 3.9.1, rule 4).
+    void shutdown();
 
 private:
     void on_lock(bool locked);
@@ -63,6 +66,8 @@ private:
     ILogger* logger_;
     std::mutex handler_mutex_;
     StatusCallback on_status_;
+    std::mutex tune_mutex_;  // serializes tune() / shutdown()
+    bool shut_down_ = false;
     hal::IpTuner tuner_;  // last member: its thread ends before the members above are destroyed
 };
 

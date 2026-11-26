@@ -119,6 +119,11 @@ void SdkTuner::on_lock(bool locked) {
 bool SdkTuner::tune(const TuneParams& params) {
     // From a tuner callback: refused (and logged) by the HAL before anything is changed.
     if (tuner_.on_receive_thread()) return tuner_.tune(params.udp_port, params.ssrc);
+    std::lock_guard<std::mutex> lock(tune_mutex_);
+    if (shut_down_) {
+        if (logger_ != nullptr) logger_->log(LogLevel::Warn, kModule, "tune() after Platform::stop() refused");
+        return false;
+    }
     BlockStopSignals block;  // the receive thread inherits the blocked SIGINT / SIGTERM
     tuner_.untune();         // no packet of the old tuning reaches the demux after the reset below
     demux_.reset_stats();
@@ -126,6 +131,12 @@ bool SdkTuner::tune(const TuneParams& params) {
 }
 
 void SdkTuner::untune() { tuner_.untune(); }
+
+void SdkTuner::shutdown() {
+    std::lock_guard<std::mutex> lock(tune_mutex_);
+    shut_down_ = true;
+    tuner_.untune();
+}
 
 ITuner::Stats SdkTuner::stats() const {
     const hal::IpTuner::Stats s = tuner_.stats();
