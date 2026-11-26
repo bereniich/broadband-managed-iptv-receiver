@@ -4,9 +4,11 @@
 Run with: python3 -m unittest discover -s tests/tools   (Python standard library only, NFR-11)
 
 The test classes carry the ID of the first test of Section 5.4 that relies on the tool:
-contract_check.py -> TST-501, ws_client.py -> TST-521. Expected values come from Section 3 of
-SPECIFICATION.md (its JSON examples must pass, and each variant below breaks exactly one rule of
-Section 3) and from RFC 6455 (the handshake example of Section 1.3 and the frames of Section 5.7).
+contract_check.py -> TST-501, ws_client.py -> TST-521, hls_check.py -> TST-522. Expected values come
+from Section 3 of SPECIFICATION.md (its JSON examples, including the playlist example of Section 3.7,
+must pass, and each variant below breaks exactly one rule of Section 3), from RFC 6455 (the
+handshake example of Section 1.3 and the frames of Section 5.7) and from ISO/IEC 13818-1 (TS
+packet fields of the hand-built segments).
 """
 
 import base64
@@ -26,6 +28,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import contract_check  # noqa: E402
+import hls_check  # noqa: E402
 import ws_client  # noqa: E402
 
 # Examples of Section 3 (3.2.1, 3.2.2, 3.2.3, 3.3.1, 3.6.3).
@@ -523,6 +526,123 @@ class Tst521WsClientRun(unittest.TestCase):
         code, out = run_client(TestServer(respond), steps)
         self.assertEqual(code, 1, out)
         self.assertIn('not received within 300 ms', out)
+
+
+# ---------------------------------------------------------------- hls_check.py (TST-522)
+
+# The example of Section 3.7, one line each.
+PLAYLIST = ('#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:41\n'
+            '#EXTINF:1.000,\nseg-41.ts\n#EXTINF:1.000,\nseg-42.ts\n#EXT-X-DISCONTINUITY\n#EXTINF:1.000,\nseg-43.ts\n')
+
+
+def playlist(first, durations, marked=(), dseq=None):
+    text = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:%d\n' % first
+    if dseq is not None:
+        text += '#EXT-X-DISCONTINUITY-SEQUENCE:%d\n' % dseq
+    for i, d in enumerate(durations):
+        if first + i in marked:
+            text += '#EXT-X-DISCONTINUITY\n'
+        text += '#EXTINF:%s,\nseg-%d.ts\n' % (d, first + i)
+    return text
+
+
+class Tst522HlsCheckPlaylist(unittest.TestCase):
+    def test_example_of_section_3_7_passes(self):
+        p, errors = hls_check.parse_playlist(PLAYLIST)
+        self.assertEqual(errors, [])
+        self.assertEqual(p.media_sequence, 41)
+        self.assertEqual(p.segments, [(41, '1.000', False), (42, '1.000', False), (43, '1.000', True)])
+        self.assertEqual(p.discontinuity_sequence, 0)
+        self.assertEqual(hls_check.parse_playlist(playlist(0, ['0.980', '2.000'], dseq=1))[1], [])
+
+    def test_variants_are_rejected(self):
+        cases = ((PLAYLIST.replace('#EXTM3U\n', ''), 'first line is not #EXTM3U'),
+                 (PLAYLIST.replace('#EXT-X-VERSION:3\n', ''), '#EXT-X-VERSION missing'),
+                 (PLAYLIST.replace('VERSION:3', 'VERSION:4'), 'must be #EXT-X-VERSION:3'),
+                 (PLAYLIST.replace('TARGETDURATION:2', 'TARGETDURATION:1'), 'must be #EXT-X-TARGETDURATION:2'),
+                 (PLAYLIST.replace('#EXT-X-MEDIA-SEQUENCE:41\n', ''), '#EXT-X-MEDIA-SEQUENCE missing'),
+                 (PLAYLIST.replace('SEQUENCE:41', 'SEQUENCE:40'), 'do not follow'),
+                 (PLAYLIST.replace('seg-42.ts', 'seg-44.ts'), 'do not follow'),
+                 (PLAYLIST.replace('seg-42.ts', 'segment-42.ts'), 'must be seg-<sequence>.ts'),
+                 (PLAYLIST.replace('#EXTINF:1.000,\nseg-41', '#EXTINF:1.0,\nseg-41'), '3 decimals'),
+                 (PLAYLIST.replace('#EXTINF:1.000,\nseg-41', '#EXTINF:1.000\nseg-41'), '3 decimals'),
+                 (PLAYLIST.replace('#EXTINF:1.000,\nseg-41', '#EXTINF:2.001,\nseg-41'), 'not in (0, 2.000]'),
+                 (PLAYLIST.replace('#EXTINF:1.000,\nseg-41', '#EXTINF:0.000,\nseg-41'), 'not in (0, 2.000]'),
+                 (PLAYLIST + '#EXT-X-ENDLIST\n', 'tag not allowed'),
+                 (PLAYLIST.replace('#EXTINF:1.000,\nseg-41', '#EXT-X-PROGRAM-DATE-TIME:x\n#EXTINF:1.000,\nseg-41'),
+                  'tag not allowed'),
+                 (PLAYLIST + '#EXTINF:1.000,\n', 'ends before the URI'),
+                 (PLAYLIST.replace('seg-41.ts\n', ''), '#EXTINF without a segment URI'),
+                 (PLAYLIST + 'seg-44.ts\n', 'segment URI without #EXTINF'),
+                 (PLAYLIST + '#EXT-X-VERSION:3\n', 'appears twice'),
+                 (playlist(0, ['1.000'] * 7), '7 segments listed'),
+                 (playlist(0, []), '0 segments listed'))
+        for text, fragment in cases:
+            errors = hls_check.parse_playlist(text)[1]
+            self.assertTrue(any(fragment in e for e in errors), '%r not in %s' % (fragment, errors))
+
+    def test_reloads(self):   # REQ-24: #EXT-X-DISCONTINUITY-SEQUENCE when marked segments leave
+        old = hls_check.parse_playlist(PLAYLIST)[0]
+        compare = lambda text: hls_check.compare_playlists(old, hls_check.parse_playlist(text)[0])
+        self.assertEqual(compare(playlist(42, ['1.000'] * 3, marked={43})), [])
+        self.assertEqual(compare(playlist(44, ['1.000'] * 2, dseq=1)), [])
+        self.assertIn('expected 1', compare(playlist(44, ['1.000'] * 2))[0])
+        self.assertIn('expected 0', compare(playlist(42, ['1.000'] * 2, marked={43}, dseq=1))[0])
+        self.assertIn('decreased', compare(playlist(40, ['1.000'] * 3))[0])
+        self.assertIn('changed', compare(playlist(42, ['1.000', '1.040'], marked={43}))[0])
+        self.assertIn('changed', compare(playlist(42, ['1.000', '1.000']))[0])
+        self.assertEqual(compare(playlist(60, ['1.000'], dseq=3)), [])   # segments in between not seen
+
+
+def ts_packet(pid, pusi=False, rai=False, scrambled=False):
+    """188 bytes: header (ISO/IEC 13818-1, 2.4.3.2) and, for `rai`, an adaptation field with
+    random_access_indicator = 1."""
+    b1 = (0x40 if pusi else 0) | (pid >> 8)
+    if rai:
+        head = bytes([0x47, b1, pid & 0xFF, (0x80 if scrambled else 0) | 0x30, 1, 0x40])
+    else:
+        head = bytes([0x47, b1, pid & 0xFF, (0x80 if scrambled else 0) | 0x10])
+    return head + bytes(TS_SIZE - len(head))
+
+
+TS_SIZE = 188
+ALLOWED = {0, 4096, 256, 257}
+
+
+def segment(*packets):
+    return b''.join(packets)
+
+
+class Tst522HlsCheckSegment(unittest.TestCase):
+    def good(self):
+        return [ts_packet(0, pusi=True), ts_packet(4096, pusi=True), ts_packet(256, pusi=True, rai=True),
+                ts_packet(257, pusi=True), ts_packet(256)]
+
+    def test_valid_segment(self):
+        pids, errors = hls_check.scan_ts(segment(*self.good()), ALLOWED, 4096, 256)
+        self.assertEqual(errors, [])
+        self.assertEqual(pids, ALLOWED)
+
+    def test_invalid_segments(self):
+        g = self.good()
+        cases = ((g + [ts_packet(8191)], 'PIDs [8191] not in the program'),
+                 (g + [ts_packet(257, scrambled=True)], 'transport_scrambling_control'),
+                 ([g[1], g[0]] + g[2:], 'first packets have PIDs [4096, 0, 256]'),
+                 (g[:2] + [ts_packet(256, pusi=True)] + g[3:], 'random_access_indicator'),
+                 (g[:2] + [ts_packet(256, rai=True)] + g[3:], 'payload_unit_start_indicator'),
+                 (g + [b'\x46' + bytes(187)], 'sync byte 0x46'),
+                 (g + [bytes(10)], 'not a positive multiple of 188'))
+        for packets, fragment in cases:
+            errors = hls_check.scan_ts(segment(*packets), ALLOWED, 4096, 256)[1]
+            self.assertTrue(any(fragment in e for e in errors), '%r not in %s' % (fragment, errors))
+        self.assertTrue(hls_check.scan_ts(b'', ALLOWED, 4096, 256)[1])
+
+    def test_segment_files_are_counted_with_temporary_names(self):   # B7: also the one being written
+        with tempfile.TemporaryDirectory() as d:
+            for name in ('seg-7.ts', 'seg-8.ts', '.tmp-3-seg-9.ts', 'index.m3u8', '.tmp-4-index.m3u8', 'seg-8.ts.old'):
+                open(os.path.join(d, name), 'w').close()
+            self.assertEqual(hls_check.count_segment_files(d), (3, True))
+            self.assertEqual(hls_check.count_segment_files(os.path.join(d, 'missing')), (0, False))
 
 
 if __name__ == '__main__':
