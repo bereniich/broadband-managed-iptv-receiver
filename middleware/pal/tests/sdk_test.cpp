@@ -317,3 +317,65 @@ TEST(Tst221, CallsFromSdkCallbacksAreRefusedWithoutDeadlock) {
 }
 
 }  // namespace
+
+namespace {
+
+// Step 4 of TST-221 (key part): IDemux::set_key reaches the descrambler (decrypted data, bits '00',
+// scrambled = true), clear_keys() removes it, and the key never appears in the log (REQ-55).
+TEST(Tst221, SetKeyReachesTheDescramblerAndClearKeysRemovesIt) {
+    const char* k3_hex = "3A7F1C9E5B2D8046A1E3C5079B4D6F28";  // K3, Section 5.2.2
+    const auto k3 = testhelp::key_from_hex(k3_hex);
+    Sdk sdk;
+    ASSERT_TRUE(sdk.tuner.tune({0, kSsrc}));
+    Sender sender(sdk.port());
+    Sink sink, audio_sink;
+    const auto ts = sdk.demux.open_filter({FilterType::Ts, 256}, sink.callback());
+    const auto audio = sdk.demux.open_filter({FilterType::Ts, 257}, audio_sink.callback());
+    ASSERT_TRUE(sdk.demux.start_filter(ts));
+    ASSERT_TRUE(sdk.demux.start_filter(audio));
+
+    std::uint8_t cc = 0;
+    std::vector<Packet> clear = video_packets(7, cc);
+    std::vector<Packet> encrypted = clear;
+    for (Packet& p : encrypted) ASSERT_TRUE(testhelp::d04_encrypt(p, k3));
+
+    const std::uint16_t pids[] = {256, 257};
+    sdk.demux.set_key(pids, 2, k3.data());
+    sender.send(encrypted);
+    ASSERT_TRUE(wait_until([&] { return sink.size() == 7; }));
+    auto got = sink.take();
+    for (std::size_t i = 0; i < 7; ++i) {
+        EXPECT_EQ(got[i].data, Bytes(clear[i].begin(), clear[i].end())) << i;  // decrypted, bits '00'
+        EXPECT_TRUE(got[i].scrambled) << i;
+    }
+    // The second PID of the same set_key (audio).
+    const Packet audio_clear = testhelp::packet(257, 0, false, Bytes(184, 0x21));
+    Packet audio_encrypted = audio_clear;
+    ASSERT_TRUE(testhelp::d04_encrypt(audio_encrypted, k3));
+    sender.send({audio_encrypted});
+    ASSERT_TRUE(wait_until([&] { return audio_sink.size() == 1; }));
+    EXPECT_EQ(audio_sink.take()[0].data, Bytes(audio_clear.begin(), audio_clear.end()));
+
+    sdk.demux.clear_keys();
+    std::vector<Packet> more = video_packets(7, cc);
+    for (Packet& p : more) ASSERT_TRUE(testhelp::d04_encrypt(p, k3));
+    sender.send(more);
+    ASSERT_TRUE(wait_until([&] { return sink.size() == 7; }));
+    got = sink.take();
+    for (std::size_t i = 0; i < 7; ++i) {
+        EXPECT_EQ(got[i].data, Bytes(more[i].begin(), more[i].end())) << i;  // unchanged, bits '10'
+        EXPECT_TRUE(got[i].scrambled) << i;
+    }
+
+    sdk.demux.set_key(pids, 2, nullptr);  // invalid: refused and logged
+    EXPECT_EQ(sdk.log_count("INFO", "PAL-SDK", "descrambler key set for PIDs 256,257"), 1);
+    EXPECT_EQ(sdk.log_count("ERROR", "PAL-SDK", "set_key refused for PIDs 256,257"), 1);
+    const std::string log = sdk.t.log_text();
+    for (const std::string& secret : {std::string(k3_hex), std::string("3a7f1c9e5b2d8046a1e3c5079b4d6f28"),
+                                      std::string("3A7F1"), std::string(reinterpret_cast<const char*>(k3.data()), 16)}) {
+        EXPECT_EQ(log.find(secret), std::string::npos) << "key material in the log";
+    }
+    sdk.tuner.untune();
+}
+
+}  // namespace

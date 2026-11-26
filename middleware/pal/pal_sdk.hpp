@@ -27,8 +27,8 @@ public:
     bool start_filter(FilterId id) override;
     void stop_filter(FilterId id) override;
     void close_filter(FilterId id) override;
-    // The descrambler HAL-DSC is not part of this build yet (WP-PAL step 7): set_key is logged as an
-    // error and has no effect; clear_keys has nothing to remove.
+    // HAL-DSC (REQ-50): the key is copied into the descrambler of the demux before the call returns
+    // (rule 3); the key itself is never logged (REQ-55). Invalid arguments are logged and ignored.
     void set_key(const std::uint16_t* pids, std::size_t pid_count, const std::uint8_t key[16]) override;
     void clear_keys() override;
     Stats stats() const override;

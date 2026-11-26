@@ -19,6 +19,7 @@
 #include <mutex>
 #include <vector>
 
+#include "descrambler.hpp"
 #include "hal_log.hpp"
 
 namespace hal {
@@ -28,7 +29,8 @@ public:
     using FilterId = std::uint32_t;  // 0 = invalid
     enum class FilterType { Section, Ts };
     // `data`: a section or one TS packet; valid only during the call. `scrambled`: TS filters only,
-    // transport_scrambling_control != '00' (the descrambler of step 7 will clear it after decryption).
+    // the packet was received with transport_scrambling_control != '00' (after decryption by the
+    // descrambler its bits are '00', and `scrambled` stays true; REQ-50).
     using DataCallback = std::function<void(const std::uint8_t* data, std::size_t len, bool scrambled)>;
 
     struct Stats {
@@ -36,6 +38,7 @@ public:
         std::uint64_t sync_errors = 0;         // dropped: sync byte not 0x47
         std::uint64_t cc_errors = 0;           // continuity counter discontinuities
         std::uint64_t sections_discarded = 0;  // longer than 4 096 bytes, or interrupted (B3, ER-24)
+        std::uint64_t packets_descrambled = 0; // decrypted by HAL-DSC (REQ-50)
     };
 
     static constexpr std::size_t kSectionBufferSize = 4096;  // B3
@@ -51,11 +54,20 @@ public:
     // Destroys the filter; no callback for it after the return.
     void remove_filter(FilterId id);
 
-    // Feeds `count` TS packets of 188 bytes (one RTP payload). The packets may be changed in place
-    // (descrambler, step 7). Callbacks run on the calling thread with the filter table locked. A call
-    // of add_filter, start_filter, stop_filter, remove_filter, feed or reset_stats from a callback
+    // Feeds `count` TS packets of 188 bytes (one RTP payload). Packets are decrypted in place by the
+    // descrambler. Callbacks run on the calling thread with the filter table locked. A call
+    // of add_filter, start_filter, stop_filter, remove_filter, set_key, clear_keys, feed or reset_stats
+    // from a callback
     // would deadlock; it is refused instead (logged as an error, 0 / false / no effect). stats() works.
     void feed(std::uint8_t* packets, std::size_t count);
+
+    // HAL-DSC (REQ-50): AES-128 key for the given PIDs, applied to their packets with
+    // transport_scrambling_control '10' before delivery, in place (B2), so every filter of a PID gets the
+    // same decrypted bytes. Takes the filter-table mutex (Section 4.5.2). Returns false for invalid
+    // arguments, a cipher error or a call from a filter callback.
+    bool set_key(const std::uint16_t* pids, std::size_t pid_count, const std::uint8_t key[16]);
+    // Removes all keys; their bytes are overwritten.
+    void clear_keys();
 
     Stats stats() const;
     // Clears the statistics and the continuity-counter state (a new tuning, a new stream).
@@ -82,6 +94,7 @@ private:
 
     LogFn log_;
     mutable std::mutex mutex_;
+    Descrambler descrambler_;
     FilterId next_id_ = 1;
     std::map<FilterId, std::unique_ptr<Filter>> filters_;
     std::array<std::vector<Filter*>, 8192> by_pid_{};
