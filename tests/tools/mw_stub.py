@@ -10,23 +10,32 @@ Anything else, and a route without a file, gets 404 with an error object. Listen
 
 Usage (Python standard library only, NFR-11):
   mw_stub.py [--port 8080] --services services.json [--service svc-1=svc-1.json ...] [--epg epg.json]
-Every request is printed on standard output with its status.
+Every request is printed on standard output with its status, as an NFR-13 line
+(`2026-12-03T10:15:42.317 INFO [MW-STUB] ...`), so that its time can be compared with the logs of the
+system (TST-608).
 """
 
 import argparse
+import datetime
 import http.server
 import json
 import sys
-import time
 import urllib.parse
+
+
+def log_line(module, message):
+    """One line in the format of NFR-13: <ISO local time with ms> INFO [<module>] <message>."""
+    now = datetime.datetime.now()
+    print('%s.%03d INFO [%s] %s' % (now.strftime('%Y-%m-%dT%H:%M:%S'), now.microsecond // 1000, module, message),
+          flush=True)
 
 
 def make_handler(routes):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
 
-        def log_message(self, fmt, *args):  # one line per request, on standard output
-            print('%s %s' % (time.strftime('%Y-%m-%dT%H:%M:%S'), fmt % args), flush=True)
+        def log_message(self, fmt, *args):  # one NFR-13 line per request
+            log_line('MW-STUB', fmt % args)
 
         def send(self, status, body):
             self.send_response(status)

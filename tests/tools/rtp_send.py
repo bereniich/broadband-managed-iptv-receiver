@@ -50,6 +50,42 @@ def pid_of(p):
     return ((p[1] & 0x1F) << 8) | p[2]
 
 
+def section_start(p):
+    """Offset of the first section in a packet with payload_unit_start_indicator = 1, or None."""
+    afc = (p[3] >> 4) & 0x3
+    if not p[1] & 0x40 or not afc & 0x1:
+        return None
+    offset = 4 + (1 + p[4] if afc & 0x2 else 0)
+    if offset >= TS:
+        return None
+    offset += 1 + p[offset]  # pointer_field
+    return offset if offset + 12 <= TS else None
+
+
+def pmt_pid_of_pat(p):
+    o = section_start(p)
+    if o is None:
+        return None
+    end = min(TS, o + 3 + (((p[o + 1] & 0x0F) << 8) | p[o + 2]) - 4)  # without the CRC
+    for i in range(o + 8, end - 3, 4):
+        if (p[i] << 8) | p[i + 1] != 0:  # program_number 0 is the network PID
+            return ((p[i + 2] & 0x1F) << 8) | p[i + 3]
+    return None
+
+
+def video_pid_of_pmt(p):
+    o = section_start(p)
+    if o is None:
+        return None
+    end = min(TS, o + 3 + (((p[o + 1] & 0x0F) << 8) | p[o + 2]) - 4)
+    i = o + 12 + (((p[o + 10] & 0x0F) << 8) | p[o + 11])
+    while i + 5 <= end:
+        if p[i] == 0x1B:  # H.264
+            return ((p[i + 1] & 0x1F) << 8) | p[i + 2]
+        i += 5 + (((p[i + 3] & 0x0F) << 8) | p[i + 4])
+    return None
+
+
 def send_invalid(sock, dest, ssrc):
     sent = {}
     good = bytes([0x47] + [0xFF] * 187) * 7
@@ -104,11 +140,9 @@ def send_stream(sock, dest, ssrc, path, seconds, mode):
                 break
             pid = pid_of(p)
             if pid == 0 and pmt_pid is None:
-                pmt_pid = ((p[4 + 1 + 10] & 0x1F) << 8) | p[4 + 1 + 11]  # first program of the PAT
-            if pid == pmt_pid and video_pid is None and p[1] & 0x40:
-                section = p[5:]
-                program_info = ((section[10] & 0x0F) << 8) | section[11]
-                video_pid = ((section[12 + program_info + 1] & 0x1F) << 8) | section[12 + program_info + 2]
+                pmt_pid = pmt_pid_of_pat(p)
+            if pid == pmt_pid and video_pid is None:
+                video_pid = video_pid_of_pmt(p)
             if mode == 'ts-errors':
                 second = int(time.monotonic() - start)
                 if second != fault_second:
@@ -122,13 +156,15 @@ def send_stream(sock, dest, ssrc, path, seconds, mode):
                     pending['cc'] = False  # this video packet is not sent: its counter is skipped
                     counts['skipped continuity counters'] += 1
                     continue
-                elif pending['pat'] and pid == 0 and p[1] & 0x40:
-                    length = ((p[6] & 0x0F) << 8) | p[7]
-                    p[5 + 3 + length - 1] ^= 0xFF  # last CRC byte
+                elif pending['pat'] and pid == 0 and section_start(p) is not None:
+                    o = section_start(p)
+                    length = ((p[o + 1] & 0x0F) << 8) | p[o + 2]
+                    p[min(TS - 1, o + 3 + length - 1)] ^= 0xFF  # last CRC byte
                     pending['pat'] = False
                     counts['PAT with a changed CRC byte'] += 1
-                elif pending['pmt'] and pid == pmt_pid and p[1] & 0x40:
-                    p[6] = (p[6] & 0xF0) | 0x0F  # section_length 0x0Fxx > 183 bytes of data
+                elif pending['pmt'] and pid == pmt_pid and section_start(p) is not None:
+                    o = section_start(p)
+                    p[o + 1] = (p[o + 1] & 0xF0) | 0x0F  # section_length 0x0Fxx: more than the data
                     pending['pmt'] = False
                     counts['PMT with a too large section_length'] += 1
             block.append(bytes(p))

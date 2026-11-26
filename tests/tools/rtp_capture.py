@@ -8,14 +8,15 @@ Usage (Python standard library only, NFR-11):
   rtp_capture.py --port 5004 --seconds 15 [--ssrc N] [--out capture.ts]
 
 Checks per datagram: at least 12 bytes; V = 2, P = 0, X = 0, CC = 0, M = 0, PT = 33; the SSRC is the
-given one (or, without --ssrc, the one of the first datagram); the payload is 1 - 7 whole TS packets,
-each starting with the sync byte 0x47. Sequence numbers must increase by 1 (wrap 65535 -> 0); a
+given one (or, without --ssrc, the one of the first datagram); the payload is 1 - 7 whole TS packets.
+A TS packet without the sync byte 0x47 is a TS-level error (REQ-15): it is counted in ts_sync_errors,
+and its datagram still counts as a valid RTP datagram. Sequence numbers must increase by 1 (wrap 65535 -> 0); a
 forward jump counts the missing numbers as gaps, a backward step as late or duplicate.
 
 Summary lines (key=value): datagrams, invalid (with the reasons), sequence_gaps, late_or_duplicate,
 first_datagram_ts_packets, first_datagram_pids, first_arrival_ms and last_arrival_ms (UNIX time in
 milliseconds, to compare with the times of /start and /stop), bitrate_last_10s_mbps (TS payload),
-ts_bytes. The exit code is 1 if a datagram was invalid, 2 for a usage error, otherwise 0.
+ts_sync_errors, ts_bytes. The exit code is 1 if a datagram was invalid, 2 for a usage error, otherwise 0.
 """
 
 import argparse
@@ -50,9 +51,6 @@ def check_header(data, expected_ssrc):
     payload = len(data) - 12
     if payload == 0 or payload % TS != 0 or payload > 7 * TS:
         return 'payload of %d bytes' % payload, ssrc, seq, 0
-    for i in range(12, len(data), TS):
-        if data[i] != 0x47:
-            return 'TS packet without sync byte', ssrc, seq, 0
     return None, ssrc, seq, payload // TS
 
 
@@ -76,7 +74,7 @@ def main():
     out = open(args.out, 'wb') if args.out else None
 
     expected_ssrc = args.ssrc
-    datagrams = invalid = gaps = late = ts_bytes = 0
+    datagrams = invalid = gaps = late = ts_bytes = sync_errors = 0
     reasons = collections.Counter()
     last_seq = None
     first = None  # (packet count, PIDs) of the first valid datagram
@@ -117,6 +115,7 @@ def main():
             pids = sorted({((data[i + 1] & 0x1F) << 8) | data[i + 2] for i in range(12, len(data), TS)})
             first = (count, pids)
         payload = data[12:]
+        sync_errors += sum(1 for i in range(0, len(payload), TS) if payload[i] != 0x47)  # TS level (REQ-15)
         ts_bytes += len(payload)
         if out:
             out.write(payload)
@@ -140,6 +139,7 @@ def main():
     print('first_arrival_ms=%s' % ('%.0f' % first_ms if first_ms else '-'))
     print('last_arrival_ms=%s' % ('%.0f' % last_ms if last_ms else '-'))
     print('bitrate_last_10s_mbps=%.3f' % bitrate)
+    print('ts_sync_errors=%d' % sync_errors)
     print('ts_bytes=%d' % ts_bytes)
     return 1 if invalid else 0
 

@@ -8,10 +8,13 @@ head-end's watchdog does). Listens on 127.0.0.1 only.
 
 Usage (Python standard library only, NFR-11):
   headend_stub.py [--port 8081] [--services svc-1,svc-2,svc-3,svc-4]
-Every request is printed on standard output with its status.
+Every request is printed on standard output with its status, as an NFR-13 line
+(`2026-12-03T10:15:42.317 INFO [HE-STUB] ...`), so that its time can be compared with the logs of the
+system (TST-608).
 """
 
 import argparse
+import datetime
 import http.server
 import json
 import sys
@@ -20,6 +23,13 @@ import time
 
 EXPIRY_S = 15
 ARCHIVE_WINDOW_S = 7200
+
+
+def log_line(module, message):
+    """One line in the format of NFR-13: <ISO local time with ms> INFO [<module>] <message>."""
+    now = datetime.datetime.now()
+    print('%s.%03d INFO [%s] %s' % (now.strftime('%Y-%m-%dT%H:%M:%S'), now.microsecond // 1000, module, message),
+          flush=True)
 
 
 def make_handler(services):
@@ -34,8 +44,8 @@ def make_handler(services):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
 
-        def log_message(self, fmt, *args):
-            print('%s %s' % (time.strftime('%Y-%m-%dT%H:%M:%S'), fmt % args), flush=True)
+        def log_message(self, fmt, *args):  # one NFR-13 line per request
+            log_line('HE-STUB', fmt % args)
 
         def send(self, status, obj):
             body = json.dumps(obj).encode()
@@ -107,9 +117,12 @@ def make_handler(services):
             sid = 'hs-%06d' % state['next']
             state['next'] += 1
             state['sessions'][sid] = (endpoint, now)
-            return self.send(200, {'session_id': sid, 'service_id': body['service_id'],
-                                   'start_time': int(now) if start == 'live' else start,
-                                   'ssrc': ssrc, 'payload_type': 33})
+            self.send(200, {'session_id': sid, 'service_id': body['service_id'],
+                            'start_time': int(now) if start == 'live' else start,
+                            'ssrc': ssrc, 'payload_type': 33})
+            log_line('HE-STUB', 'start accepted session_id=%s service=%s client=%s ssrc=%d (no RTP is sent)'
+                     % (sid, body['service_id'], endpoint, ssrc))
+            return None
 
     return Handler
 
