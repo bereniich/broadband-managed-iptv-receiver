@@ -3760,10 +3760,10 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 40 | 1 | 59 | 0 |
-| Integration | 22 | 1 | 0 | 21 | 0 |
+| Unit | 100 | 49 | 1 | 50 | 0 |
+| Integration | 22 | 6 | 0 | 16 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 41 | 1 | 126 | 0 |
+| **Total** | 168 | 55 | 1 | 112 | 0 |
 
 Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
@@ -3824,7 +3824,7 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-201** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: 100 datagrams of 7 TS packets → `Locked` once, at the first datagram; 700 TS packets in order; `rtp_packets` = 100 | `tests/evidence/TST-201/2026-11-26_2fda787a_testout.txt` |
 | **TST-202** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: IN-08 (V = 1, PT 96, other SSRC, payloads of 100 / 0 / 8 × 188 bytes, 1 000 random datagrams) plus P / X / CSRC set and wrong lengths: no TS packet delivered, no `Locked`, `rtp_invalid` = number sent; then one valid datagram → `Locked` | `tests/evidence/TST-202/2026-11-26_2fda787a_testout.txt` |
 | **TST-203** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: IN-09 → `rtp_lost` = 10 for 10 omitted; wrap 65 530 → 5 → `rtp_lost` = 0; a late datagram is not counted; gaps right at the wrap are counted | `tests/evidence/TST-203/2026-11-26_2fda787a_testout.txt` |
-| **TST-204** | Unit | not executed | — | — | — | — |
+| **TST-204** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: `Unlocked` 3 003 ms after the last datagram (limit 3 000 ± 150 ms); `Locked` at the first new datagram | `tests/evidence/TST-204/2026-11-27_d49a08e6_testout.txt` |
 | **TST-205** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: no callback after `untune()` returned at 380 datagrams/s (also with a 2 ms callback, 5 rounds); after `tune` with S2 only S2 delivered, the 50 datagrams of S counted in `rtp_invalid`; `tune` / `untune` from a tuner callback refused | `tests/evidence/TST-205/2026-11-26_2fda787a_testout.txt` |
 | **TST-206** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: port occupied → `tune` returns `false`, error logged; free port → `SO_RCVBUF` requested 1 048 576, effective value logged (2 097 152 on this machine) | `tests/evidence/TST-206/2026-11-26_2fda787a_testout.txt` |
 | **TST-211** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: sync byte `0x46` not delivered (`sync_errors` = 1); 2 CC discontinuities counted in `cc_errors` and the packets delivered; `scrambled` = bits ≠ `'00'` | `tests/evidence/TST-211/2026-11-26_2fda787a_testout.txt` |
@@ -3832,25 +3832,25 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-213** | Unit | passed | 2026-11-26 | 2fda787a | 3 test functions passed: helper CRC = `0x0376E6E7`; sections delivered byte for byte (pointer_field, over 3 packets, two in one packet, `table_id` filter); a 4 098-byte section (the largest possible; 5 000 bytes cannot exist, issue #8) discarded and counted, assembly restarted at the next unit start | `tests/evidence/TST-213/2026-11-26_2fda787a_testout.txt` |
 | **TST-214** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: 1 000 open / close cycles with a feeding thread at full speed → 0 callbacks after `close_filter` returned; demux calls from a filter callback refused instead of deadlocking | `tests/evidence/TST-214/2026-11-26_2fda787a_testout.txt` |
 | **TST-215** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: FIPS-197 C.1 → `00112233445566778899aabbccddeeff`; SP 800-38A F.2.2 → the four plaintext blocks (also decrypted in place) | `tests/evidence/TST-215/2026-11-26_2fda787a_testout.txt` |
-| **TST-216** | Unit | not executed | — | — | — | — |
-| **TST-217** | Unit | not executed | — | — | — | — |
+| **TST-216** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: all 1 396 249 packets of `svc-3.enc.ts` (packaged with `package_ts` of `main`) fed through demux and descrambler with K3 equal the packets of `svc-3.ts` at the same position byte for byte (scrambling bits `'00'`); `scrambled = true` exactly for the packets received with `'10'` | `tests/evidence/TST-216/2026-11-27_d49a08e6_testout.txt` |
+| **TST-217** | Unit | passed | 2026-11-27 | d49a08e6 | 2 test functions passed: 1 000 encrypted packets of `svc-3.enc.ts` without a key and 1 000 after `clear_keys` delivered unchanged, `scrambled = true`, scrambling bits `'10'`; packets built by the test are handled as REQ-50 requires | `tests/evidence/TST-217/2026-11-27_d49a08e6_testout.txt` |
 | **TST-221** | Unit | passed | 2026-11-26 | 2fda787a | 6 test functions passed: `open_filter` with PID 8192 → 0; no data before `start_filter`, none after `stop_filter` / `close_filter`; `set_key` → decrypted data (bits `'00'`, `scrambled` = true) on PIDs 256 and 257, `clear_keys` removes it; statistics equal the HAL counters | `tests/evidence/TST-221/2026-11-26_2fda787a_testout.txt` |
-| **TST-222** | Unit | not executed | — | — | — | — |
+| **TST-222** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: 1: `get`, `post_json` and a `404` answer each give one callback with status and body; 2: closed port and unsupported URLs give `transport_ok = false`; 3: timeout callback after 300.9 ms (limit 300 ± 50 ms), no second callback; 4: `cancel` before the answer gives no callback; 50 concurrent requests from 5 threads get one callback each | `tests/evidence/TST-222/2026-11-27_d49a08e6_testout.txt` |
 | **TST-223** | Unit | passed | 2026-11-26 | 2fda787a | 5 test functions passed: `/` → `index.html`; `/css/style.css`; playlist with `application/vnd.apple.mpegurl` and `Cache-Control: no-cache`; segment with `video/mp2t`; `/hls/9/x.ts` → 404; WebSocket: text frames both ways, `broadcast` to 2 clients, binary frame of random bytes ignored, abrupt disconnect reported, process kept running; listening on 127.0.0.1 only | `tests/evidence/TST-223/2026-11-26_2fda787a_testout.txt` |
 | **TST-224** | Unit | passed | 2026-11-26 | 2fda787a | 4 test functions passed: `hls_dir` empty after `Platform::start()`; the reader saw only a missing or the complete 1 000 000-byte file during 100 writes; `remove_file` of a missing file → `true`; directory removed by `close_session` | `tests/evidence/TST-224/2026-11-26_2fda787a_testout.txt` |
-| **TST-225** | Unit | not executed | — | — | — | — |
+| **TST-225** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: 1: timers of 50, 100 and 1 000 ms fired once, late by 0.97, 0.48 and 0.91 ms (limit 0 – 20 ms), the cancelled one never; 2: 4 threads × 1 000 lines give 4 000 complete lines in the format of NFR-13 | `tests/evidence/TST-225/2026-11-27_d49a08e6_testout.txt` |
 | **TST-226** | Unit | passed | 2026-11-26 | 2fda787a | 3 test functions passed: with tuner, TS filter, timers, a WebSocket client and a pending HTTP request active, 0 callbacks of any interface after `Platform::stop()` returned | `tests/evidence/TST-226/2026-11-26_2fda787a_testout.txt` |
 | **TST-301** | Unit | failed | 2026-11-26 | 2fda787a | Failed, issue #5: the 7 clear files have all properties of Section 5.2.1 (1 test function passed). For `svc-3.enc.ts` and `svc-4.enc.ts` the expected properties are not observed: D-04 encrypts PES headers and SPS, so `ffprobe` cannot read profile, resolution or duration (agreed change for 1.2); the test function checks their clear inputs instead | `tests/evidence/TST-301/2026-11-26_2fda787a_testout.txt` |
-| **TST-302** | Unit | not executed | — | — | — | — |
+| **TST-302** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: largest distance between PAT packets and between PMT packets 0.0907 s in each of the four files (limit 0.1 s); `random_access_indicator` on every IDR start; `ffprobe`: 15 000 frames per file with an I frame exactly every 25 frames, every GOP closed | `tests/evidence/TST-302/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-302/2026-11-27_d49a08e6_ffprobe.txt` |
 | **TST-303** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed (20 PNG frames written); inspection: all 20 frames (4 services × 0, 123, 299, 300, 599 s) show the service name, Program 1 up to 299 s and Program 2 from 300 s, and `00:00`, `02:03`, `04:59`, `05:00`, `09:59` | `tests/evidence/TST-303/2026-11-26_2fda787a_testout.txt`, `tests/evidence/TST-303/2026-11-26_2fda787a_photo.png` |
 | **TST-304** | Unit | not executed | — | — | — | — |
 | **TST-305** | Unit | not executed | — | — | — | — |
 | **TST-306** | Unit | not executed | — | — | — | — |
-| **TST-311** | Unit | not executed | — | — | — | — |
+| **TST-311** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: for `T mod 600` = 0, 1, 299, 300 and 599 s, p − c = 0.0000, 0.0005, 0.0009, 0.0010 and 0.0011 s (limit 0 ≤ p − c < 0.04 s), at offsets that are multiples of 188 on a PCR packet of the PCR PID; cached PAT and PMT are the first of the file | `tests/evidence/TST-311/2026-11-27_d49a08e6_testout.txt` |
 | **TST-312** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: archive window boundaries of Section 4.7.4 as expected | `tests/evidence/TST-312/2026-11-26_2fda787a_testout.txt` |
 | **TST-313** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: missing or invalid content files refused with a message naming service and file; `headend` exits with code 1 naming them (ER-38) | `tests/evidence/TST-313/2026-11-26_2fda787a_testout.txt` |
-| **TST-314** | Unit | not executed | — | — | — | — |
-| **TST-315** | Unit | not executed | — | — | — | — |
+| **TST-314** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: first datagram PAT and PMT, then 7 TS packets per datagram; V = 2, PT = 33, M = 0, the given SSRC, sequence without gaps; loop boundary after 3.002 s (expected 3 s) with a gap of 14.4 ms (limit 100 ms); bitrate 3.497 Mbit/s (3.5 ± 5 %) | `tests/evidence/TST-314/2026-11-27_d49a08e6_testout.txt` |
+| **TST-315** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: warning `late by` logged; content skipped once by 1.9986 s at block 335 (2 s within one PCR interval), no block of it sent; largest deviation of the later blocks from `c0 + (now − w0)` 0.0016 s (limit 0.0311 s) | `tests/evidence/TST-315/2026-11-27_d49a08e6_testout.txt` |
 | **TST-316** | Unit | passed | 2026-11-26 | 2fda787a | 4 test functions passed: examples of Section 3.3; IN-02 → 400 `INVALID_REQUEST`, IN-03 → `OUT_OF_ARCHIVE`, `FUTURE_TIME`, 404 `SERVICE_NOT_FOUND`; a new `/start` for the same endpoint replaces the session; 10 concurrent starts for one endpoint leave exactly 1 session | `tests/evidence/TST-316/2026-11-26_2fda787a_testout.txt` |
 | **TST-317** | Unit | not executed | — | — | — | — |
 | **TST-318** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: IN-01 to `mw_server` and `headend` → 400 / 404 with an error object; both kept answering | `tests/evidence/TST-318/2026-11-26_2fda787a_testout.txt` |
@@ -3876,11 +3876,11 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-418** | Unit | passed | 2026-11-26 | 3ca56b53 | 4 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-418/2026-11-26_3ca56b53_testout.txt` |
 | **TST-419** | Unit | passed | 2026-11-26 | 3ca56b53 | 3 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-419/2026-11-26_3ca56b53_testout.txt` |
 | **TST-501** | Integration | not executed | — | — | — | — |
-| **TST-502** | Integration | not executed | — | — | — | — |
-| **TST-503** | Integration | not executed | — | — | — | — |
-| **TST-504** | Integration | not executed | — | — | — | — |
-| **TST-511** | Integration | not executed | — | — | — | — |
-| **TST-512** | Integration | not executed | — | — | — | — |
+| **TST-502** | Integration | passed | 2026-11-27 | d49a08e6 | 1: response of 3.3.1, `start_time` = time of the request; 2: 0 invalid headers, 0 sequence gaps, first datagram with 2 TS packets (PAT, PMT), bitrate of the last 10 s 3.501 Mbit/s (3.5 ± 5 %); 4: last datagram 3 ms before the `/stop` response (limit 100 ms after it); 5: one program, PMT PID 4096, H.264 1280×720 on PID 256, AAC on PID 257 | `tests/evidence/TST-502/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-502/2026-11-27_d49a08e6_ffprobe.json` |
+| **TST-503** | Integration | passed | 2026-11-27 | d49a08e6 | 1: `/start` svc-1 with T = 1795800300 (`T mod 600` = 300), `start_time` = T; 2: inspection of the first decodable frame: "Demo One", "Weather Today", `05:00`; 3 (svc-3): PIDs 0 and 4096 62 of 62 packets `'00'`, PID 256 8 738 of 8 738 and PID 257 477 of 477 packets with ≥ 16 payload bytes `'10'`, `ffprobe` reads PAT and PMT | `tests/evidence/TST-503/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-503/2026-11-27_d49a08e6_photo.png`, `tests/evidence/TST-503/2026-11-27_d49a08e6_ffprobe.json` |
+| **TST-504** | Integration | passed | 2026-11-27 | d49a08e6 | 1: last datagram 15.51 s after the `/start` response (limit 14.9 – 16.1 s), head-end log `session expired`; 2: with a keepalive every 5 s datagrams for 60.7 s, 0 gaps | `tests/evidence/TST-504/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-504/2026-11-27_d49a08e6_log.txt` |
+| **TST-511** | Integration | passed | 2026-11-27 | d49a08e6 | 1: PAT section with program 1 → 4096 and the PMT section printed (CRC correct); `rtp_invalid` = 0, `rtp_lost` = 0, `sync_errors` = 0, `cc_errors` = 2 (limit ≤ 2); 3: one program, H.264 1280×720 on PID 256 and AAC on PID 257, decode check 0 error lines | `tests/evidence/TST-511/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-511/2026-11-27_d49a08e6_ffprobe.json` |
+| **TST-512** | Integration | passed | 2026-11-27 | d49a08e6 | 1 (K3): 237 of 237 video PES starts begin with `00 00 01`, decode check 0 error lines, inspection of the first key frame: "Premium One"; 2 (KX) and 3 (no key): 0 of 237 | `tests/evidence/TST-512/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-512/2026-11-27_d49a08e6_photo.png` |
 | **TST-521** | Integration | not executed | — | — | — | — |
 | **TST-522** | Integration | not executed | — | — | — | — |
 | **TST-523** | Integration | not executed | — | — | — | — |
