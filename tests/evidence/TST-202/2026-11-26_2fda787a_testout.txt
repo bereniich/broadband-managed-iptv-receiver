@@ -1,0 +1,8 @@
+TESTOUT of TST-202 (Section 5.1.6)
+Command: build/bin/hal_tests --gtest_filter='Tst202.*' --gtest_color=no
+Commit: 2fda787a (main)  Date: 2026-11-26  Environment: Ubuntu 24.04.5 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-202:
+[       OK ] Tst202.InvalidDatagramsAreCountedAndNotDelivered (112 ms)
+[==========] 1 test from 1 test suite ran. (112 ms total)
+[  PASSED  ] 1 test.

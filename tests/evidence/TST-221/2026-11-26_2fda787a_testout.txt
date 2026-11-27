@@ -1,0 +1,13 @@
+TESTOUT of TST-221 (Section 5.1.6)
+Command: build/bin/pal_tests --gtest_filter='Tst221.*' --gtest_color=no
+Commit: 2fda787a (main)  Date: 2026-11-26  Environment: Ubuntu 24.04.5 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-221:
+[       OK ] Tst221.OpenFilterReturnsZeroForPid8192AndOtherInvalidConfigurations (2 ms)
+[       OK ] Tst221.NoDataBeforeStartFilterAndNoneAfterStopOrClose (16 ms)
+[       OK ] Tst221.StatisticsEqualTheHalCountersAndTuneClearsThem (5 ms)
+[       OK ] Tst221.TunerStatusThroughTheSdkAndPortInUse (3013 ms)
+[       OK ] Tst221.CallsFromSdkCallbacksAreRefusedWithoutDeadlock (8 ms)
+[       OK ] Tst221.SetKeyReachesTheDescramblerAndClearKeysRemovesIt (11 ms)
+[==========] 6 tests from 1 test suite ran. (3057 ms total)
+[  PASSED  ] 6 tests.

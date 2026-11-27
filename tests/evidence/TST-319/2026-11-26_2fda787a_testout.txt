@@ -1,0 +1,12 @@
+TESTOUT of TST-319 (Section 5.1.6)
+Command: build/bin/server_tests --gtest_filter='Tst319.*' --gtest_color=no
+Commit: 2fda787a (main)  Date: 2026-11-26  Environment: Ubuntu 24.04.5 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-319:
+[       OK ] Tst319.ServicesMatchSection523 (3 ms)
+[       OK ] Tst319.EpgWorkedExampleOfSection524ForAllServices (24 ms)
+[       OK ] Tst319.EpgAtMultipleOf300Has48EventsAndInclusiveArchiveBounds (23 ms)
+[       OK ] Tst319.EpgInvalidInputsIn04 (26 ms)
+[       OK ] Tst319.EpgCycleFormulaOfSection477 (1 ms)
+[==========] 5 tests from 1 test suite ran. (79 ms total)
+[  PASSED  ] 5 tests.
