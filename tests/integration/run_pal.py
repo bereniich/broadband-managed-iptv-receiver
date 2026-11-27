@@ -16,7 +16,8 @@ Usage (Python standard library only, NFR-11), from any directory:
               than server/config.json, because such a run is not evidence (Section 5.1.7).
 
 Tests:
-  TST-501  services and EPG against 5.2.3 / 5.2.4 (the contract check needs tests/tools/contract_check.py)
+  TST-501  services and EPG against 5.2.3 / 5.2.4; step 2 runs tests/tools/contract_check.py on all six
+           responses (without that tool the test ends "not executed")
   TST-502  /start svc-1 live, 15 s RTP, /stop, 2 s more; headers, gaps, first datagram, bitrate, ffprobe
   TST-503  /start svc-1 at the start of the previous event: first decodable frame as PNG (PHOTO: time code
            T mod 600 and the title of the event); svc-3: scrambling bits per PID and ffprobe of PAT / PMT
@@ -169,21 +170,60 @@ class Session:
         return http_json('POST', self.base + '/stop', {'session_id': sid})
 
 
+def http_get_text(url, timeout=5):
+    """(status, body text) of a GET; the body is kept as received, for the contract checker."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status, r.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        return e.code, (e.read() or b'').decode('utf-8', 'replace')
+
+
+def contract_check(res, responses):
+    """Step 2 of TST-501: tests/tools/contract_check.py on every response, per kind; exit code 0 = no error."""
+    contract = os.path.join(TOOLS, 'contract_check.py')
+    if not os.path.exists(contract):
+        res.note('step 2 (contract checker) not executed: tests/tools/contract_check.py is not available')
+        res.status = 'not executed' if not res.failures else 'failed'
+        return
+    for kind, files in responses.items():
+        r = subprocess.run([sys.executable, '-I', contract, '--kind', kind] + [os.path.basename(f) for f in files],
+                           cwd=os.path.dirname(files[0]), capture_output=True, text=True)
+        out = (r.stdout + r.stderr).strip().splitlines()
+        res.check(r.returncode == 0, 'contract_check.py --kind %s on %d response(s): %s'
+                  % (kind, len(files), out[-1] if out else 'no output, exit code %d' % r.returncode))
+        for line in out[:-1][:10]:  # the errors found, at most 10 per kind
+            res.note(line)
+
+
 def tst501(ctx):
     res = Result(501)
-    status, body = http_json('GET', ctx.mw + '/services')
+    responses = {'mw_services': [], 'mw_service_info': [], 'mw_epg': []}  # kind of contract_check.py -> files
+
+    def get(kind, name, path):
+        status, text = http_get_text(ctx.mw + path)
+        file = os.path.join(ctx.tmp, 'tst501-%s.json' % name)
+        with open(file, 'w', encoding='utf-8') as f:
+            f.write(text)
+        responses[kind].append(file)
+        try:
+            return status, json.loads(text)
+        except ValueError:
+            return status, None
+
+    status, body = get('mw_services', 'services', '/services')
     listed = body.get('services', []) if isinstance(body, dict) else []
     res.check(status == 200 and [(e.get('service_id'), e.get('number'), e.get('name'), e.get('protected'))
                                  for e in listed] == [sv[:4] for sv in SERVICES],
               'GET /services: the four services of 5.2.3 in number order (service_id, number, name, protected)')
     for sv in SERVICES:
-        status, info = http_json('GET', ctx.mw + '/services/' + sv[0])
+        status, info = get('mw_service_info', 'info-' + sv[0], '/services/' + sv[0])
         expected = {'service_id': sv[0], 'number': sv[1], 'name': sv[2], 'protected': sv[3], 'description': sv[4],
                     'stream_control_url': STREAM_CONTROL_URL, 'archive_window_s': ARCHIVE_WINDOW_S}
         wrong = {k: info.get(k) for k, v in expected.items() if not isinstance(info, dict) or info.get(k) != v}
         res.check(status == 200 and not wrong, 'GET /services/%s: fields of 5.2.3%s' % (sv[0], ' (wrong: %s)' % wrong if wrong else ''))
     t0 = int(time.time())
-    status, epg = http_json('GET', ctx.mw + '/epg?from=%d&to=%d' % (t0 - 7200, t0 + 7200))
+    status, epg = get('mw_epg', 'epg', '/epg?from=%d&to=%d' % (t0 - 7200, t0 + 7200))
     t = epg.get('server_time', 0) if isinstance(epg, dict) else 0
     by_id = {svc.get('service_id'): svc for svc in (epg.get('services', []) if isinstance(epg, dict) else [])}
     for sv in SERVICES:
@@ -204,10 +244,7 @@ def tst501(ctx):
         res.check(status == 200 and not problems,
                   'EPG %s: %d events, event_id, start, duration, title, description and in_archive of 5.2.3 / 5.2.4 '
                   '(server_time %d)%s' % (sv[0], expected_count, t, ' -- ' + '; '.join(problems[:3]) if problems else ''))
-    contract = os.path.join(TOOLS, 'contract_check.py')
-    if not os.path.exists(contract):
-        res.note('step 2 (contract checker) not executed: tests/tools/contract_check.py is not available')
-        res.status = 'not executed' if not res.failures else 'failed'
+    contract_check(res, responses)
     return res
 
 
