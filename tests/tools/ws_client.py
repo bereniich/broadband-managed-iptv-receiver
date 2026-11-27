@@ -99,6 +99,8 @@ class FrameParser:
                 return out
             fin, opcode, payload = frame
             if opcode >= 0x8:                       # control frames may come between fragments
+                if opcode not in (OP_CLOSE, OP_PING, OP_PONG):
+                    raise ProtocolError('reserved opcode %d' % opcode)   # Section 5.2: fail the connection
                 if not fin or len(payload) > 125:
                     raise ProtocolError('invalid control frame')
                 out.append((opcode, payload))
@@ -107,17 +109,26 @@ class FrameParser:
                     raise ProtocolError('continuation frame without a message')
                 self.fragments[1].append(payload)
                 if fin:
-                    out.append((self.fragments[0], b''.join(self.fragments[1])))
+                    out.append(self._message(self.fragments[0], b''.join(self.fragments[1])))
                     self.fragments = None
             elif opcode in (OP_TEXT, OP_BINARY):
                 if self.fragments is not None:
                     raise ProtocolError('new message inside a fragmented one')
                 if fin:
-                    out.append((opcode, payload))
+                    out.append(self._message(opcode, payload))
                 else:
                     self.fragments = (opcode, [payload])
             else:
                 raise ProtocolError('reserved opcode %d' % opcode)
+
+    @staticmethod
+    def _message(opcode, payload):
+        if opcode == OP_TEXT:
+            try:
+                payload.decode('utf-8')
+            except UnicodeDecodeError:
+                raise ProtocolError('text message is not valid UTF-8') from None   # Section 8.1
+        return opcode, payload
 
     def _frame(self):
         b = self.buffer
@@ -289,7 +300,7 @@ class Runner:
     def pump(self, timeout_s):
         for opcode, payload in self.conn.receive(timeout_s):
             if opcode == OP_TEXT:
-                text = payload.decode('utf-8', 'replace')
+                text = payload.decode('utf-8')   # checked by FrameParser (Section 8.1)
                 self.log('recv', 'text', text)
                 try:
                     m = json.loads(text)

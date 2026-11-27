@@ -257,8 +257,12 @@ def check_error_object(r, err, path, codes):
 
 def http_error(codes):
     def check(r, obj):
-        if need_object(r, obj, '') and need(r, obj, '', 'error', lambda v: True, '') is not None:
-            check_error_object(r, obj['error'], 'error', codes)
+        if not need_object(r, obj, ''):
+            return
+        if 'error' not in obj:
+            r.error('error', 'missing')
+            return
+        check_error_object(r, obj['error'], 'error', codes)   # Section 3.1: {"code": ..., "message": ...}
     return check
 
 

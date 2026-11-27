@@ -174,6 +174,9 @@ class Tst501ContractCheckInvalid(unittest.TestCase):
         self.assertRejected('he_error', {'error': {'code': 'INVALID_RANGE', 'message': 'x'}}, 'one of')
         self.assertRejected('he_error', {'error': {'code': 'FUTURE_TIME'}}, 'message: missing')
         self.assertRejected('he_error', {'code': 'FUTURE_TIME', 'message': 'x'}, 'error: missing')
+        self.assertRejected('mw_error', {'error': None}, 'error: must be an object')   # Section 3.1
+        self.assertRejected('he_error', {'error': None}, 'error: must be an object')
+        self.assertRejected('mw_error', {'error': 'INVALID_RANGE'}, 'error: must be an object')
 
     def test_stream_control(self):   # Section 3.3, IN-02
         for value in (-1, 4294967296, 'abc', 1.5):
@@ -322,7 +325,11 @@ class Tst521WsClientFrames(unittest.TestCase):
                      bytes([0x01, 0x00, 0x81, 0x00]),                # new message inside a fragmented one
                      bytes([0x09, 0x00]),                            # fragmented control frame
                      bytes([0xC1, 0x00]),                            # reserved bit
-                     bytes([0x83, 0x00])):                           # reserved opcode
+                     bytes([0x83, 0x00]),                            # reserved opcode
+                     bytes([0x8B, 0x00]),                            # reserved control opcode (Section 5.2)
+                     bytes([0x8F, 0x00]),
+                     bytes([0x81, 0x02, 0xC3, 0x28]),                # invalid UTF-8 in a text frame (Section 8.1)
+                     bytes([0x01, 0x01, 0xE2, 0x80, 0x01, 0x28])):   # the same, split over two fragments
             with self.assertRaises(ws_client.ProtocolError, msg=data.hex()):
                 ws_client.FrameParser().feed(data)
 
