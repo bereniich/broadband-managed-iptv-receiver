@@ -3760,10 +3760,10 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 40 | 0 | 59 | 1 |
+| Unit | 100 | 40 | 1 | 59 | 0 |
 | Integration | 22 | 1 | 0 | 21 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 41 | 0 | 126 | 1 |
+| **Total** | 168 | 41 | 1 | 126 | 0 |
 
 Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
@@ -3840,7 +3840,7 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-224** | Unit | passed | 2026-11-26 | 2fda787a | 4 test functions passed: `hls_dir` empty after `Platform::start()`; the reader saw only a missing or the complete 1 000 000-byte file during 100 writes; `remove_file` of a missing file → `true`; directory removed by `close_session` | `tests/evidence/TST-224/2026-11-26_2fda787a_testout.txt` |
 | **TST-225** | Unit | not executed | — | — | — | — |
 | **TST-226** | Unit | passed | 2026-11-26 | 2fda787a | 3 test functions passed: with tuner, TS filter, timers, a WebSocket client and a pending HTTP request active, 0 callbacks of any interface after `Platform::stop()` returned | `tests/evidence/TST-226/2026-11-26_2fda787a_testout.txt` |
-| **TST-301** | Unit | not verifiable | 2026-11-26 | 2fda787a | 1 test function passed for the 7 clear files (all properties of Section 5.2.1). The encrypted files cannot be probed: D-04 encrypts PES headers and SPS, so `ffprobe` cannot read profile, resolution or duration (issue #5, agreed change for 1.2); their clear inputs were checked instead | `tests/evidence/TST-301/2026-11-26_2fda787a_testout.txt` |
+| **TST-301** | Unit | failed | 2026-11-26 | 2fda787a | Failed, issue #5: the 7 clear files have all properties of Section 5.2.1 (1 test function passed). For `svc-3.enc.ts` and `svc-4.enc.ts` the expected properties are not observed: D-04 encrypts PES headers and SPS, so `ffprobe` cannot read profile, resolution or duration (agreed change for 1.2); the test function checks their clear inputs instead | `tests/evidence/TST-301/2026-11-26_2fda787a_testout.txt` |
 | **TST-302** | Unit | not executed | — | — | — | — |
 | **TST-303** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed (20 PNG frames written); inspection: all 20 frames (4 services × 0, 123, 299, 300, 599 s) show the service name, Program 1 up to 299 s and Program 2 from 300 s, and `00:00`, `02:03`, `04:59`, `05:00`, `09:59` | `tests/evidence/TST-303/2026-11-26_2fda787a_testout.txt`, `tests/evidence/TST-303/2026-11-26_2fda787a_photo.png` |
 | **TST-304** | Unit | not executed | — | — | — | — |
