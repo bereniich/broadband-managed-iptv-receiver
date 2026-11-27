@@ -785,6 +785,7 @@ TEST(Tst317, SessionWithoutKeepaliveExpiresBetween15And16s) {
     EXPECT_FALSE(rx_a.receive_for(milliseconds(200)).empty()) << "kept-alive session does not send";
 
     const std::string log = test::read_text(dir.file("headend.log"));
+    std::printf("TST-317 log (headend.log of the test):\n%s", log.c_str());  // LOG evidence (5.1.6)
     EXPECT_NE(log.find("WARN [SRV-HEC] session expired session_id=hs-000002"), std::string::npos) << log;
     EXPECT_EQ(log.find("session expired session_id=hs-000001"), std::string::npos) << log;
 }
