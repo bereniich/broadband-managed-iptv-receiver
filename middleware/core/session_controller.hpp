@@ -2,7 +2,10 @@
 // REQ-59). The only module that knows the order of the steps S1 – S12 of a session; it drives AL-SVC,
 // AL-HEC, AL-PSI, AL-DSC and AL-OUT and the tuner, and executes the transition table of Section 4.3.4.
 // Step 7c implements the clear path (T-01, T-02, T-03, T-06, T-09, T-11, T-12, T-18, T-19, T-26,
-// T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream.
+// T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream;
+// step 9a the errors of a start (T-04, T-05, T-07, T-08, T-13, T-21, T-30 and a demux filter that
+// cannot be opened, issue #24); step 9b no signal and the loss of the head-end (T-10, T-20, T-22,
+// T-23, T-28, T-29, T-32); step 9c the statistics line every 10 s (Section 4.8.1, principle 4).
 // Every callback carries the generation of its attempt; tasks of another generation are discarded
 // before the table is consulted (rule 2). Runs on the AL worker.
 #pragma once
@@ -50,11 +53,13 @@ class SessionController {
 public:
     static constexpr std::int64_t kArchiveWindowS = 7200;   // Section 3.1, D-08
     static constexpr std::int64_t kWindowMarginS = 5;       // REQ-41
+    static constexpr int kStatsIntervalS = 10;              // Section 4.8.1: counters every 10 s
 
     struct Config {   // Section 4.2.5
         std::uint16_t rtp_port = 5004;
         std::string client_host = "127.0.0.1";
         int keepalive_interval_s = 5;
+        int keepalive_loss_s = 15;   // REQ-69: keepalive_loss_s / keepalive_interval_s failed keepalives
         int no_data_timeout_s = 5;
         int stream_deadline_s = 3;
     };
@@ -64,7 +69,7 @@ public:
         std::function<void(const SessionState&, const StreamDescription&)> on_stream_info;
     };
 
-    SessionController(pal::ITuner& tuner, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
+    SessionController(pal::ITuner& tuner, pal::IDemux& demux, pal::IClock& clock, pal::ILogger& logger, TaskQueue& queue,
                       ServiceManager& services, HeadendClient& headend, PsiParser& psi, KeyManager& keys,
                       HlsPackager& output, Config config, Listener listener,
                       std::uint32_t ssrc_seed = std::random_device{}());
@@ -97,7 +102,7 @@ public:
 
 private:
     enum class Decision { Unknown, Clear, Protected };   // protection recorded by the data path
-    enum class Timer { Keepalive, NoData, Deadline };
+    enum class Timer { Keepalive, NoData, Deadline, Stats };
 
     struct Session {
         std::uint64_t number = 0;
@@ -130,8 +135,12 @@ private:
     void send_start();                                          // S4
     void on_start(std::uint64_t generation, const HeadendError& error, const StartResult* result);
     void on_tuner(std::uint64_t generation, pal::TunerStatus status);
+    void first_locked();                                        // S6 of T-09 and T-10
+    void log_stats();                                           // Section 4.8.1
     void on_pat(std::uint64_t generation, std::uint16_t pmt_pid);
     void on_pmt(std::uint64_t generation, const StreamDescription& stream);
+    void on_pmt_novideo(std::uint64_t generation);              // T-13
+    void on_output_error(std::uint64_t generation);             // T-30
     void on_video1(std::uint64_t generation, al::Protection protection);
     void on_first_segment(std::uint64_t generation);
     void on_timer(std::uint64_t generation, Timer timer);
@@ -140,6 +149,8 @@ private:
     // Rule 4. `on_stopped` is called with the result of POST /stop; returns false (and does not call it)
     // when no head-end session exists.
     bool release(HeadendClient::Done on_stopped = nullptr);
+    // RELEASE, then state error with `code` (Section 3.10); `message` is the text for logs.
+    void fail(const std::string& code, const std::string& message);
     void start_timer(Timer timer, int seconds);
     void cancel_timer(Timer timer);
     std::optional<pal::IClock::TimerId>& timer_slot(Timer timer);
@@ -149,6 +160,7 @@ private:
     void log(pal::LogLevel level, const std::string& message);
 
     pal::ITuner& tuner_;
+    pal::IDemux& demux_;
     pal::IClock& clock_;
     pal::ILogger& logger_;
     TaskQueue& queue_;
@@ -172,6 +184,7 @@ private:
     std::optional<pal::IClock::TimerId> keepalive_timer_;
     std::optional<pal::IClock::TimerId> no_data_timer_;
     std::optional<pal::IClock::TimerId> deadline_timer_;
+    std::optional<pal::IClock::TimerId> stats_timer_;
 };
 
 }  // namespace al

@@ -161,6 +161,7 @@ void HlsPackager::discard_segment(const std::string& reason) {
     current_.clear();
     start_pcr_.reset();
     current_discontinuity_ = false;
+    ++discarded_segments_;
     log(pal::LogLevel::Warn, "segment discarded: " + reason);
 }
 

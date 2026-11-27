@@ -1,5 +1,5 @@
 // AL-SES module tests (step 7c, clear path): TST-131, TST-132 (a), TST-135, TST-155 and the rest of
-// TST-105 / TST-106. All AL modules are real; the platform is the fakes of step 3, wired as AL-MAIN
+// TST-105 / TST-106; step 9a: TST-133, TST-134, TST-138 and TST-127 at session level. All AL modules are real; the platform is the fakes of step 3, wired as AL-MAIN
 // wires the real one. Expected values: the transition table of Section 4.3.4, the steps of
 // Section 4.2.4, the JSON examples of Section 3 and the clamping rule of REQ-41 / Section 5.2.4.
 #include <gtest/gtest.h>
@@ -22,11 +22,13 @@
 #include "headend_client.hpp"
 #include "hls_packager.hpp"
 #include "key_manager.hpp"
+#include "psi_builder.hpp"
 #include "psi_parser.hpp"
 #include "service_manager.hpp"
 #include "session_controller.hpp"
 #include "stream_gen.hpp"
 #include "task_queue.hpp"
+#include "ts_builder.hpp"
 
 namespace {
 
@@ -54,7 +56,7 @@ struct Harness {
     al::HlsPackager out{store, logger};
     std::vector<al::SessionState> states;
     std::vector<std::pair<al::SessionState, al::StreamDescription>> infos;
-    al::SessionController ses{tuner, clock, logger, queue, svc, hec, psi, dsc, out,
+    al::SessionController ses{tuner, demux, clock, logger, queue, svc, hec, psi, dsc, out,
                               al::SessionController::Config{}, listener(), 42};
     testutil::StreamGen gen;
 
@@ -360,6 +362,329 @@ TEST(Tst105, FullFilterOrderContent) {
         EXPECT_EQ(h.infos[0].second.video_pid, c.video);
         EXPECT_EQ(h.infos[0].second.audio_pid, std::optional<std::uint16_t>(c.audio));
     }
+}
+
+// ---------------------------------------------------------------- step 9a: errors of a start
+
+// The error code of the last session_state of `session`, or "" if it is not error.
+std::string error_code(const Harness& h, std::uint64_t session) {
+    for (auto it = h.states.rbegin(); it != h.states.rend(); ++it) {
+        if (it->session != session) continue;
+        return it->state == al::State::Error && it->error ? it->error->code : "";
+    }
+    return "";
+}
+
+// RELEASE of an attempt without a head-end session (rule 4): the tuning, the PAT filter and the HLS
+// directory of S3 are released, and no POST /stop is sent.
+void expect_released_without_stop(const Harness& h) {
+    const std::vector<std::string> e = h.calls.entries();
+    const std::size_t tuned = index_of(e, "tune 5004");
+    ASSERT_LT(tuned, e.size());
+    EXPECT_LT(index_of(e, "untune", tuned), e.size());
+    EXPECT_LT(index_of(e, "close_session 1", tuned), e.size());
+    EXPECT_TRUE(h.demux.open_filters().empty());
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 0u);
+}
+
+TEST(Tst133, FutureTimeIsRetriedAsLive) {   // (a), T-07, ER-11
+    Harness h;
+    h.http.script("POST", kHe + "/start", FakeHttpClient::Reply::file(400, "error_future_time.json"));
+    h.ses.play("svc-1", al::StartPoint{kT - 10});
+    h.settle();
+    ASSERT_EQ(h.http.count("POST", kHe + "/start"), 2u);
+    std::vector<json> starts;
+    for (const auto& r : h.http.requests()) {
+        if (r.method == "POST" && r.url == kHe + "/start") starts.push_back(json::parse(r.body));
+    }
+    ASSERT_EQ(starts.size(), 2u);
+    EXPECT_EQ(starts[0]["start"], kT - 10);
+    EXPECT_EQ(starts[1]["start"], "live");
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    EXPECT_TRUE(h.states.back().start.live());   // session_state.start = "live"
+    EXPECT_TRUE(h.logger.contains("answered FUTURE_TIME, retry as live"));
+}
+
+TEST(Tst133, HeadendErrorsEndInError) {   // (b) – (d), T-08, ER-10, ER-12, ER-13
+    const struct {
+        const char* name;
+        FakeHttpClient::Reply reply;
+        const char* code;
+    } cases[] = {
+        {"OUT_OF_ARCHIVE", FakeHttpClient::Reply::file(400, "error_out_of_archive.json"), "OUT_OF_ARCHIVE"},
+        {"INVALID_REQUEST", FakeHttpClient::Reply::file(400, "error_invalid_request.json"), "INVALID_REQUEST"},
+        {"transport failure", FakeHttpClient::Reply::transport_failure(), "HEADEND_UNREACHABLE"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        Harness h;
+        h.http.script("POST", kHe + "/start", c.reply);
+        h.ses.play("svc-1", al::StartPoint{kT - 10});
+        h.settle();
+        EXPECT_EQ(h.http.count("POST", kHe + "/start"), 1u);
+        EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "error"}));
+        EXPECT_EQ(error_code(h, 1), c.code);
+        expect_released_without_stop(h);
+        EXPECT_TRUE(h.logger.contains(std::string("error ") + c.code));
+    }
+}
+
+TEST(Tst134, TuneFailure) {   // (a), T-04, ER-26
+    Harness h;
+    h.tuner.set_tune_result(false);
+    h.ses.play("svc-1", {});
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "error"}));
+    EXPECT_EQ(error_code(h, 1), "RECEIVER_ERROR");
+    EXPECT_EQ(h.http.count("POST", kHe + "/start"), 0u);
+    EXPECT_EQ(h.calls.find("open_session"), fakes::CallLog::npos);
+}
+
+TEST(Tst134, ServiceInfoErrors) {   // (b), (c), T-05, ER-08
+    const struct {
+        const char* name;
+        FakeHttpClient::Reply reply;
+        const char* code;
+    } cases[] = {
+        {"404", FakeHttpClient::Reply::file(404, "error_service_not_found.json"), "SERVICE_NOT_FOUND"},
+        {"fails", FakeHttpClient::Reply::transport_failure(), "MW_UNREACHABLE"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.name);
+        Harness h;
+        h.http.script("GET", kMw + "/services/svc-1", c.reply);
+        h.ses.play("svc-1", {});
+        h.settle();
+        EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "error"}));
+        EXPECT_EQ(error_code(h, 1), c.code);
+        EXPECT_EQ(h.http.count("POST", kHe + "/start"), 0u);
+        EXPECT_EQ(h.calls.find("tune "), fakes::CallLog::npos);
+    }
+}
+
+TEST(Tst134, FilterCannotBeOpened) {   // issue #24 (proposed T-34): open_filter returns 0
+    Harness h;
+    h.demux.fail_open_filters(true);
+    h.ses.play("svc-1", {});
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "error"}));
+    EXPECT_EQ(error_code(h, 1), "RECEIVER_ERROR");
+    EXPECT_EQ(h.http.count("POST", kHe + "/start"), 0u);
+    expect_released_without_stop(h);
+}
+
+TEST(Tst138, PmtWithoutVideoContent) {   // (a), T-13, ER-25
+    Harness h;
+    h.ses.play("svc-1", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    if (!h.feed_content("test/novideo.ts", 0.5)) return;
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "error"}));
+    EXPECT_EQ(error_code(h, 1), "INVALID_STREAM");
+    EXPECT_TRUE(h.logger.contains("PMT pcr_pid=256 video=none audio=256/0x0F"));
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);   // RELEASE with the head-end session
+    EXPECT_TRUE(h.infos.empty());                         // no stream_info for a stream without video
+}
+
+TEST(Tst138, StreamDeadline) {   // (b), T-21, ER-25: PAT and PMT, but no video packet
+    Harness h;
+    ASSERT_TRUE(h.dsc.store("svc-3", "3A7F1C9E5B2D8046A1E3C5079B4D6F28"));   // K3 (Section 5.2.2)
+    h.ses.play("svc-3", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    std::vector<Bytes> psi_only;
+    for (const Bytes& p : h.gen.frames(1)) {
+        const int pid = ((p[1] & 0x1F) << 8) | p[2];
+        if (pid == 0 || pid == 4096) psi_only.push_back(p);
+    }
+    ASSERT_EQ(psi_only.size(), 2u);
+    h.feed(psi_only);
+    EXPECT_NE(h.calls.find("set_key 256"), fakes::CallLog::npos);   // key set at T-12 (REQ-49)
+    h.advance(2999);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    h.advance(1);   // 3 000 ms after Locked
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "error"}));
+    EXPECT_EQ(error_code(h, 1), "INVALID_STREAM");
+    EXPECT_TRUE(h.dsc.has_key("svc-3"));   // the stored key is kept
+    EXPECT_NE(h.calls.find("clear_keys"), fakes::CallLog::npos);
+}
+
+TEST(Tst127, WriteFailureAtSessionLevel) {   // T-30, ER-26
+    Harness h;
+    h.store.fail_writes_from(3);   // seg-0.ts and index.m3u8 succeed, seg-1.ts fails
+    h.play_until_playing();
+    ASSERT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing"}));
+    h.feed(h.gen.frames(26));
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing", "error"}));
+    EXPECT_EQ(error_code(h, 1), "RECEIVER_ERROR");
+    // RELEASE: filters closed, clear_keys, untune, close_session, POST /stop.
+    const std::vector<std::string> e = h.calls.entries();
+    const std::size_t failed = index_of(e, "write_file 1 seg-1.ts");
+    ASSERT_LT(failed, e.size());
+    const std::size_t clear = index_of(e, "clear_keys", failed);
+    const std::size_t untune = index_of(e, "untune", clear);
+    const std::size_t closed = index_of(e, "close_session 1", untune);
+    EXPECT_LT(clear, untune);
+    EXPECT_LT(untune, closed);
+    EXPECT_LT(closed, e.size());
+    EXPECT_TRUE(h.demux.open_filters().empty());
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);
+}
+
+TEST(Tst134, PmtAndTsFiltersCannotBeOpened) {   // issue #24 at T-11 and T-12
+    for (std::size_t failing : {2u, 3u}) {   // open_filter calls: 1 PAT, 2 PMT, 3 the first TS filter
+        SCOPED_TRACE(failing == 2 ? "PMT filter" : "TS filter");
+        Harness h;
+        h.ses.play("svc-1", {});
+        h.settle();   // T-03 opened the PAT filter, /start answered
+        h.demux.fail_open_filters_from(failing - 1);
+        ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+        h.settle();
+        h.feed(h.gen.frames(1));   // PAT, PMT
+        EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "error"}));
+        EXPECT_EQ(error_code(h, 1), "RECEIVER_ERROR");
+        EXPECT_TRUE(h.demux.open_filters().empty());
+        EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);
+    }
+}
+
+// ---------------------------------------------------------------- step 9b: no signal, keepalive
+
+TEST(Tst136, NoDataAtStart) {   // T-20, T-32, T-10, ER-19
+    Harness h;
+    h.ses.play("svc-1", {});
+    h.settle();   // /start answered 200: waiting_stream, no tuner status
+    ASSERT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    h.advance(4999);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream"}));
+    h.advance(1);   // 5 000 ms after EV-START-OK
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "no_signal"}));
+    EXPECT_EQ(h.states.back().reason, std::optional<std::string>("no_data_at_start"));
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 1u);   // the session and its keepalives continue
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Unlocked));
+    h.settle();
+    EXPECT_EQ(h.states.size(), 3u);   // T-32: no change
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1),
+              (std::vector<std::string>{"starting", "waiting_stream", "no_signal", "waiting_stream"}));
+    EXPECT_FALSE(h.states.back().reason.has_value());
+    h.advance(3000);   // T-10 is "as T-09": the stream deadline runs from this Locked
+    EXPECT_EQ(error_code(h, 1), "INVALID_STREAM");
+}
+
+TEST(Tst137, DataLostWhilePlaying) {   // T-22, T-23, ER-20
+    Harness h;
+    h.play_until_playing();
+    const std::size_t files = h.store.files(1).size();
+    ASSERT_GT(files, 0u);
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Unlocked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "playing", "no_signal"}));
+    EXPECT_EQ(h.states.back().reason, std::optional<std::string>("data_lost"));
+    EXPECT_EQ(h.store.files(1).size(), files);   // directory and files kept
+    EXPECT_EQ(h.calls.find("close_session"), fakes::CallLog::npos);
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    EXPECT_EQ(h.state_names(1),
+              (std::vector<std::string>{"starting", "waiting_stream", "playing", "no_signal", "playing"}));
+    EXPECT_FALSE(h.states.back().reason.has_value());
+    for (const auto& st : h.states) EXPECT_EQ(st.session, 1u);   // no new session number
+    EXPECT_TRUE(h.states.back().playing_since.has_value());
+}
+
+TEST(Tst145, KeepalivesEvery5s) {   // (1) T-26, T-27
+    Harness h;
+    h.play_until_playing();   // EV-START-OK at t0 = the time of play
+    for (int k = 1; k <= 6; ++k) {
+        h.advance(4999);
+        EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), static_cast<std::size_t>(k - 1)) << k * 5 << " s";
+        h.advance(1);
+        EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), static_cast<std::size_t>(k)) << k * 5 << " s";
+    }
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+}
+
+TEST(Tst145, SessionNotFound) {   // (2) T-28, ER-14
+    Harness h;
+    h.http.script("POST", kHe + "/keepalive", FakeHttpClient::Reply::file(404, "error_session_not_found.json"));
+    h.play_until_playing();
+    h.advance(5000);
+    EXPECT_EQ(error_code(h, 1), "HEADEND_UNREACHABLE");
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 0u);   // the head-end does not know the session
+    EXPECT_TRUE(h.demux.open_filters().empty());
+    EXPECT_NE(h.calls.find("close_session 1"), fakes::CallLog::npos);
+}
+
+TEST(Tst145, ThreeFailedKeepalives) {   // (3) T-29, ER-15
+    Harness h;
+    for (int i = 0; i < 3; ++i) h.http.script("POST", kHe + "/keepalive", FakeHttpClient::Reply::transport_failure());
+    h.play_until_playing();
+    h.advance(5000);
+    h.advance(5000);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);   // no change at the failures of 5 and 10 s
+    h.advance(4999);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+    h.advance(1);   // the third failure, 15 s
+    EXPECT_EQ(error_code(h, 1), "HEADEND_UNREACHABLE");
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);   // RELEASE; the response is only logged
+    EXPECT_EQ(h.logger.count_containing("keepalive failed ("), 3u);   // AL-SES: 1, 2 and 3 of 3
+}
+
+TEST(Tst145, SuccessResetsTheCount) {   // (4) T-27
+    Harness h;
+    using R = FakeHttpClient::Reply;
+    for (const R& r : {R::transport_failure(), R::transport_failure(), R::ok(200, R"({ "expires_in_s": 15 })"),
+                       R::transport_failure(), R::transport_failure()}) {
+        h.http.script("POST", kHe + "/keepalive", r);
+    }
+    h.play_until_playing();
+    for (int k = 0; k < 5; ++k) h.advance(5000);   // keepalives at 5, 10, 15, 20 and 25 s
+    EXPECT_EQ(h.http.count("POST", kHe + "/keepalive"), 5u);
+    EXPECT_EQ(h.states.back().state, al::State::Playing);
+    EXPECT_EQ(error_code(h, 1), "");
+}
+
+// ---------------------------------------------------------------- step 9c: statistics every 10 s
+
+std::vector<std::string> stats_lines(const Harness& h) {
+    std::vector<std::string> out;
+    for (const auto& l : h.logger.lines()) {
+        if (std::string(l.module) == "AL-SES" && l.message.rfind("stats ", 0) == 0) out.push_back(l.message);
+    }
+    return out;
+}
+
+TEST(Tst148, StatsLineEvery10s) {   // Section 4.8.1, principle 4; HANDOVER §5 format
+    Harness h;
+    h.tuner.set_stats(pal::ITuner::Stats{1000, 2, 3});
+    h.ses.play("svc-1", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    Bytes bad_pat = testutil::make_pat({{1, 4096}});
+    bad_pat[bad_pat.size() - 1] ^= 0x01;   // CRC error: discarded by AL-PSI
+    h.feed(testutil::packetize_section(0, bad_pat, 0));
+    h.feed(h.gen.frames(51));   // playing
+    h.advance(9999);
+    EXPECT_TRUE(stats_lines(h).empty());
+    h.advance(1);   // 10 s after T-03
+    const pal::IDemux::Stats d = h.demux.stats();   // the bad PAT also repeats a continuity counter
+    ASSERT_EQ(stats_lines(h).size(), 1u);
+    EXPECT_EQ(stats_lines(h)[0], "stats rtp_packets=1000 rtp_lost=2 rtp_invalid=3 ts_packets=" +
+                                     std::to_string(d.ts_packets) + " sync_errors=" + std::to_string(d.sync_errors) +
+                                     " cc_errors=" + std::to_string(d.cc_errors) +
+                                     " dropped_tasks=0 discarded_sections=1 discarded_segments=0 session=1 generation=1");
+    EXPECT_GT(d.ts_packets, 0u);
+    h.advance(10000);
+    h.advance(10000);
+    EXPECT_EQ(stats_lines(h).size(), 3u);   // at 10, 20 and 30 s
+    h.ses.stop();   // RELEASE cancels the statistics timer
+    h.settle();
+    h.advance(30000);
+    EXPECT_EQ(stats_lines(h).size(), 3u);
 }
 
 }  // namespace
