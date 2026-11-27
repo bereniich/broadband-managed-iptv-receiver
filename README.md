@@ -69,7 +69,19 @@ The content files are generated on every machine and are not committed (about 26
 
 ## Run
 
-The whole system is started and stopped with `scripts/start.sh` and `scripts/stop.sh` (WP-APP). The processes, each started from the repository root:
+The whole system is started and stopped with `scripts/start.sh` and `scripts/stop.sh` (WP-APP, NFR-12):
+
+```bash
+scripts/start.sh
+```
+
+```bash
+scripts/stop.sh
+```
+
+`start.sh` starts the OTT MW server, the head-end and the middleware in this order, checks after each one that it has opened its TCP port (taken from the configuration files), checks `GET /` of the Web application and then opens Chromium in kiosk mode with its own profile (`~/snap/chromium/common/m15-kiosk`). If a component fails, it names it, stops the components it has started and exits with code 1. Options: `--diag` opens the page with `?diag=1` and writes the standard error of Chromium to `logs/chromium.log` (Section 5.1.8); `--test-set` starts the OTT MW server and the head-end with `server/config.test.json`. The standard output of the processes goes to `logs/<component>.out`, their log lines to `logs/<component>.log`. `stop.sh` stops Chromium (the kiosk profile only), the middleware (up to 3 s for its orderly stop with `POST /stop`), the head-end and the OTT MW server. In kiosk mode the terminal is reached with the Super key; `Alt+F4` closes the kiosk window.
+
+The processes, each started from the repository root:
 
 ```bash
 build/bin/mw_server --config server/config.json
