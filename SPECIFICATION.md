@@ -3761,9 +3761,9 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
 | Unit | 100 | 40 | 0 | 59 | 1 |
-| Integration | 22 | 0 | 0 | 22 | 0 |
+| Integration | 22 | 1 | 0 | 21 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 40 | 0 | 127 | 1 |
+| **Total** | 168 | 41 | 0 | 126 | 1 |
 
 Requirements verified: 3 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
@@ -3894,7 +3894,7 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-531** | Integration | not executed | — | — | — | — |
 | **TST-532** | Integration | not executed | — | — | — | — |
 | **TST-533** | Integration | not executed | — | — | — | — |
-| **TST-541** | Integration | not executed | — | — | — | — |
+| **TST-541** | Integration | passed | 2026-11-26 | 6d211daa | 1: page loaded from the mock, `get_services` sent (mock log id=2); 2: `playing` of session 1, `frame /hls/1/index.m3u8` 311 ms after the first `wait`, first `frag 0`, picture of "Demo One" visible; 3: `key_required` `no_key` of session 2 → dialog "Enter the decryption key" 0/32, then `playing` of session 3 → new player, `frame /hls/3/index.m3u8` (Chromium 158 snap, Ubuntu 26.04) | `tests/evidence/TST-541/2026-11-26_6d211daa_log.txt`, `…_photo1_playing_session1.png`, `…_photo2_key_dialog_session2.png`, `…_photo3_new_player_session3.png` |
 | **TST-542** | Integration | not executed | — | — | — | — |
 | **TST-543** | Integration | not executed | — | — | — | — |
 | **TST-601** | Acceptance | not executed | — | — | — | — |
