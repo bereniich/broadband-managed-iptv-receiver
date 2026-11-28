@@ -1,0 +1,19 @@
+FFPROBE of TST-106 (Section 5.1.6): stream structure of the content files, compared with stream_info and the AL-PSI log lines of the test
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04.4 LTS, FFmpeg 6.1.1 (ffprobe)
+
+Command: ffprobe -v error -read_intervals %+1 -show_entries program=program_num,pmt_pid,pcr_pid:stream=id,codec_type,codec_name -of compact content/svc-1.ts
+program|program_num=1|pmt_pid=4096|pcr_pid=256|stream|codec_name=h264|codec_type=video|id=0x100
+stream|codec_name=aac|codec_type=audio|id=0x101
+
+stream|codec_name=h264|codec_type=video|id=0x100
+stream|codec_name=aac|codec_type=audio|id=0x101
+
+Command: ffprobe -v error -read_intervals %+1 -show_entries program=program_num,pmt_pid,pcr_pid:stream=id,codec_type,codec_name -of compact content/test/svc-2.altpid.ts
+program|program_num=2|pmt_pid=768|pcr_pid=1025|stream|codec_name=h264|codec_type=video|id=0x401
+stream|codec_name=aac|codec_type=audio|id=0x402
+
+stream|codec_name=h264|codec_type=video|id=0x401
+stream|codec_name=aac|codec_type=audio|id=0x402
+
+Expected by the test (Section 5.2.1): svc-1.ts program 1, PMT 4096, PCR 256, video 256 (0x1B), audio 257 (0x0F);
+test/svc-2.altpid.ts program 2, PMT 768, PCR 1025, video 1025 (0x1B), audio 1026 (0x0F). stream_type 0x1B = h264, 0x0F = aac (ADTS).

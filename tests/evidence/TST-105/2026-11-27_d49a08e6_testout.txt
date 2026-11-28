@@ -1,0 +1,20 @@
+TESTOUT of TST-105 (Section 5.1.6)
+Command: build/bin/dtvcore_tests --gtest_filter='Tst105.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04.4 LTS, GCC 13.3.0, GoogleTest 1.14.0, FFmpeg 6.1.1
+
+Test functions of TST-105:
+[       OK ] Tst105.FakeDemuxSectionAssembly (0 ms)
+[       OK ] Tst105.FakeDemuxFilterLifecycle (0 ms)
+[       OK ] Tst105.TsFiltersAfterKey (0 ms)
+[       OK ] Tst105.PacketsForwardedInOrder (0 ms)
+[       OK ] Tst105.DscGenerationCloseAndFailure (0 ms)
+[       OK ] Tst105.SectionFilterCallsAndRepetitions (0 ms)
+[       OK ] Tst105.AltPidStructureFromSections (0 ms)
+[       OK ] Tst105.VersionChangeIgnored (0 ms)
+[       OK ] Tst105.OldGenerationAndCloseDiscard (0 ms)
+[       OK ] Tst105.OpenFilterFailure (0 ms)
+[       OK ] Tst105.ContentFiles (20 ms)
+[       OK ] Tst105.FullFilterOrder (1 ms)
+[       OK ] Tst105.FullFilterOrderContent (41 ms)
+[==========] 13 tests from 1 test suite ran. (63 ms total)
+[  PASSED  ] 13 tests.

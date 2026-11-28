@@ -1,0 +1,11 @@
+TESTOUT of TST-146 (Section 5.1.6)
+Command: build/bin/dtvcore_tests --gtest_filter='Tst146.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04.4 LTS, GCC 13.3.0, GoogleTest 1.14.0, FFmpeg 6.1.1
+
+Test functions of TST-146:
+[       OK ] Tst146.ShutdownSendsStop (1 ms)
+[       OK ] Tst146.ShutdownWithoutSession (0 ms)
+[       OK ] Tst146.KeysZeroedAtFinish (0 ms)
+[       OK ] Tst146.WorkerShutdownWithoutSession (0 ms)
+[==========] 4 tests from 1 test suite ran. (2 ms total)
+[  PASSED  ] 4 tests.

@@ -1,0 +1,14 @@
+TESTOUT of TST-101 (Section 5.1.6)
+Command: build/bin/dtvcore_tests --gtest_filter='Tst101.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04.4 LTS, GCC 13.3.0, GoogleTest 1.14.0, FFmpeg 6.1.1
+
+Test functions of TST-101:
+[       OK ] Tst101.TsBuilderMatchesFfmpegPackets (0 ms)
+[       OK ] Tst101.TsBuilderAdaptationFieldShapes (0 ms)
+[       OK ] Tst101.HelperCrcCheckValue (0 ms)
+[       OK ] Tst101.HelperBuildsTheSectionsOfFfmpeg (0 ms)
+[       OK ] Tst101.ParsePatOneProgram (0 ms)
+[       OK ] Tst101.ParsePatSkipsProgramZero (0 ms)
+[       OK ] Tst101.ParsePatOfFfmpeg (0 ms)
+[==========] 7 tests from 1 test suite ran. (0 ms total)
+[  PASSED  ] 7 tests.
