@@ -1,0 +1,158 @@
+LOG of TST-616 (Section 5.5.2; evidence type LOG, Section 5.1.6)
+Commit: e3a9a461 (main)  Date: 2026-11-28  Executed by: Smilja Krulj (I-3)
+Environment: development machine, not E3: Ubuntu 26.04.1 LTS, screen 3072x1920 (PRE-2 asks for 1920x1080), Chromium 158 snap,
+             system started with scripts/start.sh --diag (kiosk, page ?diag=1, logs/chromium.log); content/generate.sh of this
+             machine (FFmpeg 8.0.1), encrypted files from package_ts; content/SHA256SUMS not yet on main, so the check of PRE-1
+             could not be made. Keys appear only masked (3A7F…, 0011…, C04E…; NFR-08); the DIAG mark of a typed key character is "•".
+Steps: run 2 (16:22 - 16:25), after a fresh start: EPG, previous event of "Premium One", ENTER; 5 characters, BACKSPACE, ESC; 41.9 s without a key; K, K3, ENTER.
+
+--- logs/middleware.log (play, set_key, session_state, tuner, PSI, protection, key decision, first segment) ---
+2026-11-28T16:22:13.252 INFO [AL-API] recv command id=4 name=play service_id=svc-1 start=live
+2026-11-28T16:22:13.252 INFO [AL-API] send event session_state session=1 state=starting reason=null start=live start_time=null
+2026-11-28T16:22:13.258 INFO [AL-HEC] start ok session=1 headend_session=hs-000001 ssrc=1338464186 start_time=1795879333
+2026-11-28T16:22:13.258 INFO [AL-API] send event session_state session=1 state=waiting_stream reason=null start=live start_time=1795879333
+2026-11-28T16:22:13.258 INFO [AL-SES] tuner Locked session=1 generation=1
+2026-11-28T16:22:13.258 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=1 generation=1
+2026-11-28T16:22:13.328 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=1 generation=1
+2026-11-28T16:22:13.331 INFO [AL-DSC] protection clear session=1 generation=1
+2026-11-28T16:22:15.257 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=1 generation=1
+2026-11-28T16:22:15.257 INFO [AL-API] send event session_state session=1 state=playing reason=null start=live start_time=1795879333
+2026-11-28T16:22:27.901 INFO [AL-API] recv command id=6 name=play service_id=svc-3 start=1795878900
+2026-11-28T16:22:27.903 INFO [AL-API] send event session_state session=1 state=stopped reason=null start=live start_time=1795879333
+2026-11-28T16:22:27.904 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795878900 start_time=null
+2026-11-28T16:22:27.906 INFO [AL-HEC] start ok session=2 headend_session=hs-000002 ssrc=273005587 start_time=1795878900
+2026-11-28T16:22:27.906 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795878900 start_time=1795878900
+2026-11-28T16:22:27.906 INFO [AL-SES] tuner Locked session=2 generation=2
+2026-11-28T16:22:27.906 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=2
+2026-11-28T16:22:27.976 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=2
+2026-11-28T16:22:27.979 INFO [AL-DSC] protection protected key_set=false session=2 generation=2
+2026-11-28T16:22:27.980 INFO [AL-API] send event session_state session=2 state=key_required reason=no_key start=1795878900 start_time=1795878900
+2026-11-28T16:24:47.808 INFO [AL-API] recv command id=7 name=set_key key=3A7F… service_id=svc-3
+2026-11-28T16:24:47.808 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795878900 start_time=null
+2026-11-28T16:24:47.811 INFO [AL-SES] tuner Locked session=2 generation=3
+2026-11-28T16:24:47.811 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=3
+2026-11-28T16:24:47.811 INFO [AL-HEC] start ok session=2 headend_session=hs-000003 ssrc=2622266604 start_time=1795878900
+2026-11-28T16:24:47.811 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795878900 start_time=1795878900
+2026-11-28T16:24:47.880 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=3
+2026-11-28T16:24:47.883 INFO [AL-DSC] protection protected key_set=true session=2 generation=3
+2026-11-28T16:24:47.883 INFO [AL-API] send event session_state session=2 state=validating_key reason=null start=1795878900 start_time=1795878900
+2026-11-28T16:24:47.976 INFO [AL-DSC] key accepted service=svc-3 key=3A7F… session=2 generation=3
+2026-11-28T16:24:49.809 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=2 generation=3
+2026-11-28T16:24:49.809 INFO [AL-API] send event session_state session=2 state=playing reason=null start=1795878900 start_time=1795878900
+2026-11-28T16:24:59.698 INFO [AL-API] send event session_state session=2 state=stopped reason=null start=1795878900 start_time=1795878900
+
+--- logs/headend.log (start and stop of head-end sessions) ---
+2026-11-28T16:22:13.256 INFO [SRV-HEC] start session_id=hs-000001 service=svc-1 start=live client=127.0.0.1:5004 ssrc=1338464186 start_time=1795879333 offset=58187504
+2026-11-28T16:22:27.905 INFO [SRV-HEC] stop session_id=hs-000001
+2026-11-28T16:22:27.906 INFO [SRV-HEC] start session_id=hs-000002 service=svc-3 start=1795878900 client=127.0.0.1:5004 ssrc=273005587 start_time=1795878900 offset=131250132
+2026-11-28T16:22:27.982 INFO [SRV-HEC] stop session_id=hs-000002
+2026-11-28T16:24:47.810 INFO [SRV-HEC] start session_id=hs-000003 service=svc-3 start=1795878900 client=127.0.0.1:5004 ssrc=2622266604 start_time=1795878900 offset=131250132
+2026-11-28T16:24:59.701 INFO [SRV-HEC] stop session_id=hs-000003
+
+--- logs/chromium.log, DIAG marks (Section 5.1.8; frag marks after frag 0 and osd marks left out) ---
+16:22:15.270  DIAG 1795879335270 wait
+16:22:15.555  DIAG 1795879335555 resume
+16:22:15.559  DIAG 1795879335559 frame /hls/1/index.m3u8
+16:22:15.572  DIAG 1795879335572 wait
+16:22:15.577  DIAG 1795879335577 frag 0
+16:22:15.577  DIAG 1795879335577 resume
+16:22:19.434  DIAG 1795879339434 key E
+16:22:22.592  DIAG 1795879342592 key DOWN
+16:22:22.980  DIAG 1795879342980 key DOWN
+16:22:25.064  DIAG 1795879345064 key LEFT
+16:22:27.900  DIAG 1795879347900 key ENTER
+16:22:34.355  DIAG 1795879354355 key •
+16:22:34.573  DIAG 1795879354573 key •
+16:22:34.893  DIAG 1795879354893 key •
+16:22:35.169  DIAG 1795879355169 key •
+16:22:35.493  DIAG 1795879355493 key •
+16:22:46.159  DIAG 1795879366159 key BACKSPACE
+16:22:59.644  DIAG 1795879379644 key ESC
+16:23:41.562  DIAG 1795879421562 key K
+16:23:47.919  DIAG 1795879427919 key •
+16:23:48.373  DIAG 1795879428373 key •
+16:23:51.322  DIAG 1795879431322 key •
+16:23:53.184  DIAG 1795879433184 key •
+16:23:53.862  DIAG 1795879433862 key •
+16:23:54.658  DIAG 1795879434658 key •
+16:23:55.171  DIAG 1795879435171 key •
+16:23:56.246  DIAG 1795879436246 key •
+16:23:56.676  DIAG 1795879436676 key •
+16:23:58.222  DIAG 1795879438222 key •
+16:23:59.358  DIAG 1795879439358 key •
+16:24:00.039  DIAG 1795879440039 key •
+16:24:03.937  DIAG 1795879443937 key BACKSPACE
+16:24:04.437  DIAG 1795879444437 key BACKSPACE
+16:24:04.467  DIAG 1795879444467 key BACKSPACE
+16:24:04.497  DIAG 1795879444497 key BACKSPACE
+16:24:04.526  DIAG 1795879444526 key BACKSPACE
+16:24:04.557  DIAG 1795879444557 key BACKSPACE
+16:24:04.587  DIAG 1795879444587 key BACKSPACE
+16:24:04.617  DIAG 1795879444617 key BACKSPACE
+16:24:04.647  DIAG 1795879444647 key BACKSPACE
+16:24:04.677  DIAG 1795879444677 key BACKSPACE
+16:24:04.707  DIAG 1795879444707 key BACKSPACE
+16:24:04.737  DIAG 1795879444737 key BACKSPACE
+16:24:04.768  DIAG 1795879444768 key BACKSPACE
+16:24:04.798  DIAG 1795879444798 key BACKSPACE
+16:24:04.828  DIAG 1795879444828 key BACKSPACE
+16:24:04.858  DIAG 1795879444858 key BACKSPACE
+16:24:04.888  DIAG 1795879444888 key BACKSPACE
+16:24:04.918  DIAG 1795879444918 key BACKSPACE
+16:24:04.948  DIAG 1795879444948 key BACKSPACE
+16:24:04.979  DIAG 1795879444979 key BACKSPACE
+16:24:05.009  DIAG 1795879445009 key BACKSPACE
+16:24:05.049  DIAG 1795879445049 key BACKSPACE
+16:24:05.069  DIAG 1795879445069 key BACKSPACE
+16:24:05.099  DIAG 1795879445099 key BACKSPACE
+16:24:05.129  DIAG 1795879445129 key BACKSPACE
+16:24:05.159  DIAG 1795879445159 key BACKSPACE
+16:24:05.189  DIAG 1795879445189 key BACKSPACE
+16:24:05.219  DIAG 1795879445219 key BACKSPACE
+16:24:05.250  DIAG 1795879445250 key BACKSPACE
+16:24:05.280  DIAG 1795879445280 key BACKSPACE
+16:24:09.823  DIAG 1795879449823 key •
+16:24:11.084  DIAG 1795879451084 key •
+16:24:11.887  DIAG 1795879451887 key •
+16:24:13.278  DIAG 1795879453278 key •
+16:24:14.193  DIAG 1795879454193 key •
+16:24:14.840  DIAG 1795879454840 key •
+16:24:15.905  DIAG 1795879455905 key •
+16:24:16.686  DIAG 1795879456686 key •
+16:24:17.125  DIAG 1795879457125 key •
+16:24:18.165  DIAG 1795879458165 key •
+16:24:19.122  DIAG 1795879459122 key •
+16:24:20.007  DIAG 1795879460007 key •
+16:24:20.621  DIAG 1795879460621 key •
+16:24:21.672  DIAG 1795879461672 key •
+16:24:22.557  DIAG 1795879462557 key •
+16:24:23.464  DIAG 1795879463464 key •
+16:24:24.099  DIAG 1795879464099 key •
+16:24:24.497  DIAG 1795879464497 key •
+16:24:25.546  DIAG 1795879465546 key •
+16:24:25.800  DIAG 1795879465800 key •
+16:24:27.052  DIAG 1795879467052 key •
+16:24:27.648  DIAG 1795879467648 key •
+16:24:29.638  DIAG 1795879469638 key •
+16:24:30.192  DIAG 1795879470192 key •
+16:24:32.132  DIAG 1795879472132 key •
+16:24:33.785  DIAG 1795879473785 key •
+16:24:35.562  DIAG 1795879475562 key •
+16:24:36.750  DIAG 1795879476750 key •
+16:24:37.728  DIAG 1795879477728 key •
+16:24:39.150  DIAG 1795879479150 key •
+16:24:39.611  DIAG 1795879479611 key •
+16:24:40.501  DIAG 1795879480501 key •
+16:24:47.806  DIAG 1795879487806 key ENTER
+16:24:49.823  DIAG 1795879489823 wait
+16:24:49.945  DIAG 1795879489945 frag 0
+16:24:49.945  DIAG 1795879489945 resume
+16:24:49.946  DIAG 1795879489946 frame /hls/2/index.m3u8
+16:24:52.784  DIAG 1795879492784 wait
+16:24:52.829  DIAG 1795879492829 resume
+
+--- measured (from the lines above) ---
+T = 1795878900 (16:15:00, start of the previous event of svc-3), T mod 600 = 300 -> expected time code 05:00 (± 1 s).
+key_required no_key at 16:22:27.980; ESC at 16:22:59.644; K at 16:23:41.562 (41.9 s later, no key in between);
+set_key at 16:24:47.808, key accepted 16:24:47.976, playing 16:24:49.809, first frame 16:24:49.946 (2.14 s after ENTER).
+First picture (photo 6): burned-in 05:01 (testsrc 00:05:01.280), ARCHIVE; T + 1 s is issue #36 and within ± 1 s.
