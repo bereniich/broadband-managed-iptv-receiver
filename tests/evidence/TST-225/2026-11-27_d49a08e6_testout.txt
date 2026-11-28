@@ -1,0 +1,15 @@
+TESTOUT of TST-225 (Section 5.1.6)
+Command: build/bin/pal_tests --gtest_filter='Tst225.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-225:
+TST-225 measured: 50 ms timer fired after 50.97 ms (late by 0.97 ms, limit 0 - 20 ms)
+TST-225 measured: 100 ms timer fired after 100.48 ms (late by 0.48 ms, limit 0 - 20 ms)
+TST-225 measured: 1000 ms timer fired after 1000.91 ms (late by 0.91 ms, limit 0 - 20 ms)
+[       OK ] Tst225.TimersFireOnceNotEarlyAtMost20msLateAndTheCancelledOneNever (1301 ms)
+[       OK ] Tst225.CancelWaitsForARunningCallbackAndWorksFromACallback (412 ms)
+[       OK ] Tst225.ClockReadsUtcWallTimeAndMonotonicMilliseconds (50 ms)
+[       OK ] Tst225.FourThreadsWrite4000CompleteLines (81 ms)
+[       OK ] Tst225.LoggerFormatAppendsCreatesItsDirectoryAndReportsAnUnopenableFile (0 ms)
+[==========] 5 tests from 1 test suite ran. (1847 ms total)
+[  PASSED  ] 5 tests.

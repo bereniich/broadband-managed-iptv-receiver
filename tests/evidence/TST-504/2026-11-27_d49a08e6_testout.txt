@@ -1,0 +1,34 @@
+TESTOUT of TST-504 (Section 5.1.6)
+Command: tests/integration/run_pal.py --tests 504 --evidence
+Commit: d49a08e6  Date: 2026-11-27
+
+PASS 1: last datagram 15.51 s after the /start response (14.9 - 16.1 s)
+PASS 1: head-end log "session expired session_id=hs-000004"
+PASS 2: datagrams for 60.7 s with a keepalive every 5 s, 0 gaps
+Status: passed
+
+--- rtp_capture_1 ---
+datagrams=5159
+invalid=0
+sequence_gaps=0
+late_or_duplicate=0
+first_datagram_ts_packets=2
+first_datagram_pids=0,4096
+first_arrival_ms=1795800723087
+last_arrival_ms=1795800738599
+bitrate_last_10s_mbps=3.501
+ts_sync_errors=0
+ts_bytes=6788304
+
+--- rtp_capture_2 ---
+datagrams=20190
+invalid=0
+sequence_gaps=0
+late_or_duplicate=0
+first_datagram_ts_packets=2
+first_datagram_pids=0,4096
+first_arrival_ms=1795800743642
+last_arrival_ms=1795800804367
+bitrate_last_10s_mbps=3.501
+ts_sync_errors=0
+ts_bytes=26569100

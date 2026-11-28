@@ -1,0 +1,246 @@
+TESTOUT of TST-511 (Section 5.1.6)
+Command: tests/integration/run_pal.py --tests 511 --evidence
+Commit: d49a08e6  Date: 2026-11-27
+
+PASS PAT section with program 1 -> 4096 printed (CRC ok)
+PASS PMT section printed (CRC ok)
+PASS rtp_invalid = 0 (0)
+PASS rtp_lost = 0 (0)
+PASS sync_errors = 0 (0)
+PASS cc_errors <= 2 (2)
+PASS ffprobe: one program (1)
+PASS ffprobe: PMT PID 4096 (4096)
+PASS ffprobe: H.264 1280x720 on PID 256
+PASS ffprobe: AAC on PID 257
+PASS decode check without error (0 error lines)
+Status: passed
+
+--- pal_dump ---
+tuned 127.0.0.1:5004 ssrc=1180331842 for 10 s
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+PAT 00 b0 0d 00 01 c1 00 00 00 01 f0 00 2a b1 04 b2 (CRC ok) program 1 -> PMT PID 4096
+PMT 02 b0 17 00 01 c1 00 00 e1 00 f0 00 1b e1 00 f0 00 0f e1 01 f0 00 2f 44 b9 9b (CRC ok) PCR PID 256, streams 256/0x1B 257/0x0F
+tuner rtp_packets=3161 rtp_lost=0 rtp_invalid=0
+demux ts_packets=22122 sync_errors=0 cc_errors=2
+video PES starts=237 (received scrambled: 0), beginning with 00 00 01: 237
+written /tmp/run_pal-w6jt1vsz/tst511.ts: 15482 packets, PIDs 0,256,257,4096 (left out: 1542 before the first key frame, 42 of the incomplete last picture)
