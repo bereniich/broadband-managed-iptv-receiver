@@ -937,10 +937,11 @@ def tst529(ctx):
                   % (disc[0].split(' duration')[0] if disc else 'none'))
         # Not an expected result of TST-529: what hls_check.py finds besides (IF-INT-02, Section 3.7) is
         # reported as a finding; the segment closed at the forward PCR jump of the head-end skip is tracked
-        # by the issue on REQ-24.
+        # by issue #42 (REQ-24).
         errors = [l for l in out.splitlines() if l.startswith('ERROR')]
         if errors:
-            res.note('FINDING outside the expected result (hls_check.py exit code %d, %d error line(s)):' % (code, len(errors)))
+            res.note('FINDING outside the expected result, issue #42 (hls_check.py exit code %d, %d error line(s)):'
+                     % (code, len(errors)))
             for line in errors[:10]:
                 res.note('  ' + line)
         late = [l for l in ctx.logs.lines('P3') if '[SRV-RTP] late by' in l]
