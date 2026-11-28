@@ -44,8 +44,9 @@ STATES = {'idle', 'starting', 'waiting_stream', 'key_required', 'validating_key'
 REASONS = {'key_required': {'no_key', 'key_rejected'},
            'no_signal': {'no_data_at_start', 'data_lost'}}                 # Section 3.6.3
 
-# Error codes per interface, column "Interface" of Section 3.10.
-CODES_MW = {'INVALID_RANGE', 'SERVICE_NOT_FOUND'}
+# Error codes per interface, column "Interface" of Section 3.10 (INVALID_REQUEST on IF-EXT-03 since 1.2,
+# Section 3.2: unknown path 404, method other than GET 400).
+CODES_MW = {'INVALID_REQUEST', 'INVALID_RANGE', 'SERVICE_NOT_FOUND'}
 CODES_HE = {'INVALID_REQUEST', 'OUT_OF_ARCHIVE', 'FUTURE_TIME', 'SERVICE_NOT_FOUND',
             'SESSION_NOT_FOUND'}
 # Codes of a session in state `error`: the transitions that end in `error` (Section 4.3.4):

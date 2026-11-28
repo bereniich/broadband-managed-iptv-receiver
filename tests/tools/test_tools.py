@@ -169,7 +169,8 @@ class Tst501ContractCheckInvalid(unittest.TestCase):
     def test_http_errors_per_interface(self):   # Section 3.10, column "Interface"
         self.assertEqual(errors('mw_error', {'error': {'code': 'INVALID_RANGE', 'message': 'x'}}), [])
         self.assertRejected('mw_error', {'error': {'code': 'OUT_OF_ARCHIVE', 'message': 'x'}}, 'one of')
-        self.assertRejected('mw_error', {'error': {'code': 'INVALID_REQUEST', 'message': 'x'}}, 'one of')
+        self.assertEqual(errors('mw_error', {'error': {'code': 'INVALID_REQUEST', 'message': 'x'}}), [])   # 1.2
+        self.assertRejected('mw_error', {'error': {'code': 'SESSION_NOT_FOUND', 'message': 'x'}}, 'one of')
         self.assertEqual(errors('he_error', {'error': {'code': 'SESSION_NOT_FOUND', 'message': 'x'}}), [])
         self.assertRejected('he_error', {'error': {'code': 'INVALID_RANGE', 'message': 'x'}}, 'one of')
         self.assertRejected('he_error', {'error': {'code': 'FUTURE_TIME'}}, 'message: missing')
