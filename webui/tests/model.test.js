@@ -78,6 +78,31 @@ test('TST-414 the position is re-rendered every second until the session ends wi
   assert.equal(ticks, 0, 'no position update after the new play');
 });
 
+test('TST-414 after the first picture the position is re-rendered when its second changes', async () => {
+  const fx = createFixture();
+  await fx.start();
+  await fx.answerPlay(1, { playing: true });
+  const T = T0 - 600;
+  fx.app.session.play('svc-1', T);
+  await fx.answerPlay(2, { playing: true, extra: { start_time: T } });   // player created at P
+  await fx.advance(1300);
+  const first = fx.clock.now();                // first picture 1.3 s after P (set by the player view)
+  fx.model.update({ firstPictureAt: first });
+
+  let last = JSON.stringify(fx.state);
+  const ticks = [];                            // [ms after the first picture, shown position]
+  fx.model.subscribe((state) => {
+    const now = JSON.stringify(state);
+    if (now === last) ticks.push([fx.clock.now() - first, playbackPosition(state, fx.clock.now())]);
+    last = now;
+  });
+  await fx.advance(3500);
+
+  // The tick of the old phase at 0.7 s still shows T; from then on every tick falls on a whole second
+  // after the first picture, where the position (Section 4.4.2) has just advanced by 1 s.
+  assert.deepEqual(ticks, [[700, T], [1000, T + 1], [2000, T + 2], [3000, T + 3]]);
+});
+
 test('TST-417 persistent status message by priority (Section 4.4.2)', () => {
   const svc = [{ service_id: 'svc-1', number: 1, name: 'Demo One', protected: false }];
   const cases = [
