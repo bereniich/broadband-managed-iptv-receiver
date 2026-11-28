@@ -4,7 +4,7 @@
 Usage (Python standard library only, NFR-11), from the repository root:
   random_keys.py generate [--out tests/acceptance/random_keys.txt]
   random_keys.py send [--keys tests/acceptance/random_keys.txt] [--seconds 60]
-                      [--window-name "M15 IPTV Receiver"] [--log logs/random_keys.log] [--dry-run]
+                      [--window-name "M15 IPTV Receiver"] [--log logs/random_keys_sent.txt] [--dry-run]
 
 generate  writes the 300 keys of TST-719, one xdotool key name per line: a pseudo-random sequence of
           random.Random(15) over the keys named by TST-719 (zap Up / Down, the digits, Return, Left,
@@ -13,7 +13,9 @@ generate  writes the 300 keys of TST-719, one xdotool key name per line: a pseud
 send      finds the Chromium window by its title (the <title> of webui/index.html), activates it and
           sends the keys with xdotool at equal intervals, so that all of them are sent within --seconds
           (TST-719: 300 keys within 60 s). Every key is logged with its epoch time in ms, so that the run
-          can be compared with the DIAG key marks of logs/chromium.log. --dry-run only prints the plan.
+          can be compared with the DIAG key marks of logs/chromium.log; the log is a .txt file, because
+          TST-715 checks every line of logs/*.log (except chromium.log) against the format of NFR-13.
+          --dry-run only prints the plan.
           xdotool needs an X11 session ("Ubuntu on Xorg"; HANDOVER §10): under Wayland it cannot reach
           the Chromium window.
 Exit code 0 = all keys sent within the time, 1 = not, 2 = usage error, no window or no xdotool.
@@ -86,7 +88,7 @@ def main(argv=None):
     s.add_argument('--keys', default=DEFAULT_FILE)
     s.add_argument('--seconds', type=float, default=60.0)
     s.add_argument('--window-name', default='M15 IPTV Receiver')
-    s.add_argument('--log', default='logs/random_keys.log')
+    s.add_argument('--log', default='logs/random_keys_sent.txt')
     s.add_argument('--dry-run', action='store_true')
     a = ap.parse_args(argv)
 
