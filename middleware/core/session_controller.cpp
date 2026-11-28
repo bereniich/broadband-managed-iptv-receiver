@@ -87,10 +87,12 @@ bool SessionController::in(std::initializer_list<State> states) const {
 // ---------------------------------------------------------------- T-01, T-02
 
 std::uint64_t SessionController::play(const std::string& service_id, StartPoint start) {
-    // T-01: a session in an active state, key_required or error is released and reported stopped.
-    if (in({State::Starting, State::WaitingStream, State::ValidatingKey, State::Playing, State::NoSignal,
-            State::KeyRequired, State::Error})) {
+    // T-01: a session in an active state, key_required or error is released and reported stopped;
+    // key_required and error own no PAL resources any more (rule 5), so nothing is called for them.
+    if (in({State::Starting, State::WaitingStream, State::ValidatingKey, State::Playing, State::NoSignal})) {
         release();
+        set_state(State::Stopped);
+    } else if (in({State::KeyRequired, State::Error})) {
         set_state(State::Stopped);
     }
     Session s;
@@ -98,10 +100,7 @@ std::uint64_t SessionController::play(const std::string& service_id, StartPoint 
     s.generation = next_generation_++;
     s.service_id = service_id;
     s.start = clamp(start, clock_.unix_time_s());
-    const std::uint32_t previous = s_ ? s_->ssrc : 0;
-    do {
-        s.ssrc = static_cast<std::uint32_t>(rng_());
-    } while (s_ && s.ssrc == previous);
+    s.ssrc = new_ssrc();
     s.state = State::Starting;
     s_ = std::move(s);
     log(pal::LogLevel::Info, "play service=" + service_id + " start=" + start_text(s_->start));
@@ -116,7 +115,8 @@ void SessionController::stop() {
              State::KeyRequired, State::Error})) {
         return;
     }
-    release();   // nothing left to release in key_required and error
+    // T-02: RELEASE; nothing left to release in key_required and error (rule 5), so no PAL call there.
+    if (!in({State::KeyRequired, State::Error})) release();
     set_state(State::Stopped);
 }
 
@@ -138,16 +138,46 @@ void SessionController::shutdown(std::function<void()> done) {
 void SessionController::set_key(const std::string& service_id) {
     const bool same = s_ && s_->service_id == service_id;
     if (same && s_->state == State::KeyRequired) {
-        not_handled("EV-SETKEY in key_required");   // T-24, step 11
+        log(pal::LogLevel::Info, "set_key in key_required: restart from the kept start point (T-24)");
+        restart();
         return;
     }
     if (same && in({State::Starting, State::WaitingStream, State::ValidatingKey}) && s_->stream &&
-        s_->protection != Decision::Clear) {
-        not_handled("EV-SETKEY after EV-PMT");   // T-33, step 11
+        s_->protection != Decision::Clear && s_->key_result != KeyResult::Accepted) {
+        // T-33: the TS filters of the attempt were started at T-12 with the previous key or without a
+        // key; RELEASE (the stored key, now the new one, is kept), then as T-24.
+        log(pal::LogLevel::Info, "set_key after EV-PMT, key not yet accepted: restart with the new key (T-33)");
+        release();
+        restart();
         return;
     }
     // T-25: nothing besides the storing by AL-DSC; the key is used at the next PMT of that service.
     log(pal::LogLevel::Debug, "key of " + service_id + " stored, used at the next PMT of the service");
+}
+
+void SessionController::restart() {
+    // T-24 (REQ-49, D-14): same number and start point, stream_info_sent kept (REQ-18); a new generation
+    // and SSRC; everything else reset (protected again null, Section 3.6.3). Then S2 as after play.
+    Session s;
+    s.number = s_->number;
+    s.generation = next_generation_++;
+    s.service_id = s_->service_id;
+    s.start = s_->start;
+    s.stream_info_sent = s_->stream_info_sent;
+    s.ssrc = new_ssrc();
+    s.state = State::Starting;
+    s_ = std::move(s);
+    const std::uint64_t g = s_->generation;
+    queue_.post(TaskKind::Control, [this, g] { begin(g); });
+}
+
+std::uint32_t SessionController::new_ssrc() {
+    const std::uint32_t previous = s_ ? s_->ssrc : 0;
+    std::uint32_t ssrc;
+    do {
+        ssrc = static_cast<std::uint32_t>(rng_());
+    } while (s_ && ssrc == previous);
+    return ssrc;
 }
 
 // ---------------------------------------------------------------- S1 continuation, S2, T-03, S4

@@ -1,6 +1,7 @@
 // AL-SES module tests of the protected stream (step 11a): TST-139, TST-132 (b) and the T-06 variants of
 // rule 3, the session-level parts of TST-113, TST-114 and TST-116, and TST-138 for the stream deadline
-// in validating_key (T-21). Expected values: the transition table of Section 4.3.4 (T-06, T-14 –
+// in validating_key (T-21); step 11b, the restarts by set_key and the concurrency cases: TST-140 –
+// TST-144 and TST-147 (T-24, T-25, T-33 with the guard of specification 1.3, T-01, T-02). Expected values: the transition table of Section 4.3.4 (T-06, T-14 –
 // T-18, T-21, rule 3 and RELEASE of Section 4.3.1), the test rows of Section 5.3.2, the keys of
 // Section 5.2.2 and the JSON examples of Section 3. The synthetic streams are encrypted by the
 // reference implementation of D-04 of the test code (StreamGen::key), not by HAL-DSC or package_ts.
@@ -295,6 +296,342 @@ TEST(Tst116, NoFullKeyInSessionLogs) {   // REQ-55
     EXPECT_TRUE(k3_masked);
     EXPECT_TRUE(kx_masked);
     EXPECT_TRUE(k4_masked);
+}
+
+// ---------------------------------------------------------------- step 11b helpers
+
+// set_key as AL-API executes it (Section 4.2.4): AL-DSC stores the key, then EV-SETKEY to AL-SES.
+void set_key(Harness& h, const std::string& service, const std::string& key) {
+    ASSERT_TRUE(h.dsc.store(service, key));
+    h.ses.set_key(service);
+}
+
+// After S2 – S4 of an attempt: Locked, then the given packets.
+void lock_and_feed(Harness& h, const std::vector<Bytes>& packets) {
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    h.feed(packets);
+}
+
+// State after TST-139: a new session of svc-3 in key_required (no_key) with T = t - 600.
+void to_key_required(Harness& h) {
+    h.gen.key = kK3Bytes;
+    const std::uint64_t n = h.ses.play("svc-3", al::StartPoint{kArchiveT});
+    lock_and_feed(h, h.gen.frames(3));
+    ASSERT_EQ(h.state_names(n), (std::vector<std::string>{"starting", "waiting_stream", "key_required"}));
+}
+
+std::vector<std::string> since(const Harness& h, std::size_t from, std::uint64_t session) {
+    std::vector<std::string> names;
+    for (std::size_t i = from; i < h.states.size(); ++i) {
+        if (h.states[i].session == session) names.emplace_back(al::to_string(h.states[i].state));
+    }
+    return names;
+}
+
+// ---------------------------------------------------------------- TST-140
+
+TEST(Tst140, CorrectKeyRestartsFromTheKeptStartPoint) {   // T-24, T-15, T-16, T-18; REQ-49, REQ-52, REQ-18
+    Harness h;
+    to_key_required(h);
+    const std::uint32_t old_ssrc = h.ses.ssrc();
+    const std::uint64_t old_generation = h.ses.generation();
+    ASSERT_EQ(h.infos.size(), 1u);
+    bool written_before_ok = false;
+    h.store.set_write_hook([&](std::uint64_t, const std::string&) {
+        if (!h.logger.contains("key accepted service=svc-3")) written_before_ok = true;
+    });
+
+    h.advance(120000);
+    const std::size_t from = h.states.size();
+    set_key(h, "svc-3", kK3);
+    EXPECT_EQ(h.states.size(), from);   // starting follows as a task, after the response to set_key
+    lock_and_feed(h, h.gen.frames(51));
+
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+    for (std::size_t i = from; i < h.states.size(); ++i) EXPECT_EQ(h.states[i].session, 1u);   // same number
+    EXPECT_NE(h.ses.ssrc(), old_ssrc);
+    EXPECT_GT(h.ses.generation(), old_generation);
+    EXPECT_EQ(h.last_start_body()["start"], kArchiveT);   // T, not T + 120 (D-14)
+    EXPECT_EQ(h.last_start_body()["ssrc"].get<std::uint32_t>(), h.ses.ssrc());
+    EXPECT_EQ(h.http.count("POST", kHe + "/start"), 2u);
+    EXPECT_EQ(h.infos.size(), 1u);   // no second stream_info (REQ-18)
+    EXPECT_FALSE(written_before_ok);
+    EXPECT_FALSE(h.store.files(1).empty());
+    EXPECT_EQ(h.states[from].is_protected, std::nullopt);   // protected null again after the restart
+    EXPECT_EQ(last_of(h, 1).is_protected, std::optional<bool>(true));
+    EXPECT_EQ(last_of(h, 1).start.time, std::optional<std::int64_t>(kArchiveT));
+}
+
+TEST(Tst140, ContentSvc3WithK3AfterKeyRequired) {
+    Harness h;
+    h.ses.play("svc-3", al::StartPoint{kArchiveT});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    if (!h.feed_content("svc-3.enc.ts", 1.0)) return;
+    ASSERT_EQ(h.ses.state().state, al::State::KeyRequired);
+    h.advance(120000);
+    const std::size_t from = h.states.size();
+    set_key(h, "svc-3", kK3);
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));
+    h.settle();
+    if (!h.feed_content("svc-3.enc.ts", 5.0)) return;
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+    EXPECT_EQ(h.last_start_body()["start"], kArchiveT);
+}
+
+// ---------------------------------------------------------------- TST-141
+
+TEST(Tst141, IncorrectKeyThenCorrectKey) {   // T-17, T-24; REQ-53; US-16 AC2, AC3
+    Harness h;
+    to_key_required(h);
+    const std::size_t stops = h.http.count("POST", kHe + "/stop");
+
+    std::size_t from = h.states.size();
+    set_key(h, "svc-3", kKX);
+    const std::size_t calls_from = h.calls.entries().size();
+    lock_and_feed(h, h.gen.frames(3));
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "key_required"}));
+    EXPECT_EQ(last_of(h, 1).reason, std::optional<std::string>("key_rejected"));
+    EXPECT_FALSE(h.dsc.has_key("svc-3"));   // KX removed
+    EXPECT_LT(index_of(h.calls.entries(), "clear_keys", calls_from), h.calls.entries().size());
+    EXPECT_EQ(h.out.held_segments(), 0u);   // held data discarded
+    EXPECT_FALSE(h.store.session_exists(1));
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), stops + 1);
+
+    h.advance(120000);
+    from = h.states.size();
+    set_key(h, "svc-3", kK3);
+    lock_and_feed(h, h.gen.frames(51));
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+    EXPECT_EQ(h.last_start_body()["start"], kArchiveT);
+    EXPECT_TRUE(h.dsc.has_key("svc-3"));
+}
+
+// ---------------------------------------------------------------- TST-142
+
+TEST(Tst142, SetKeyBeforePmtIsUsedAtT12) {   // (1) T-25, T-12
+    Harness h;
+    h.gen.key = kK3Bytes;
+    ASSERT_TRUE(h.dsc.store("svc-3", kKX));
+    h.ses.play("svc-3", {});
+    const std::uint64_t g = h.ses.generation();
+    set_key(h, "svc-3", kK3);   // starting, before EV-PMT
+    lock_and_feed(h, h.gen.frames(51));
+    EXPECT_EQ(h.ses.generation(), g);   // no restart
+    EXPECT_EQ(h.http.count("POST", kHe + "/start"), 1u);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+}
+
+TEST(Tst142, SetKeyInValidatingKeyRestarts) {   // (2) T-33
+    Harness h;
+    h.gen.key = kK3Bytes;
+    ASSERT_TRUE(h.dsc.store("svc-3", kKX));
+    h.ses.play("svc-3", {});
+    // PSI and a video continuation packet: protection decided (validating_key), no PES start checked yet.
+    const std::vector<Bytes> frame = h.gen.frames(1);
+    std::vector<Bytes> first = only_pid(frame, {0, 4096});
+    for (const Bytes& p : only_pid(frame, {256})) {
+        if ((p[1] & 0x40) == 0) {
+            first.push_back(p);
+            break;
+        }
+    }
+    lock_and_feed(h, first);
+    ASSERT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key"}));
+    const std::uint64_t g = h.ses.generation();
+    const std::uint32_t ssrc = h.ses.ssrc();
+    const std::size_t from = h.states.size();
+    set_key(h, "svc-3", kK3);
+    lock_and_feed(h, h.gen.frames(51));
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+    EXPECT_GT(h.ses.generation(), g);
+    EXPECT_NE(h.ses.ssrc(), ssrc);
+    EXPECT_TRUE(h.dsc.has_key("svc-3"));   // K3 stored, not removed
+    EXPECT_FALSE(h.logger.contains("key rejected"));
+    EXPECT_EQ(h.http.count("POST", kHe + "/stop"), 1u);   // RELEASE of the first attempt
+}
+
+TEST(Tst142, SetKeyForAnotherServiceChangesNothing) {   // (3) T-25
+    Harness h;
+    h.gen.key = kK3Bytes;
+    ASSERT_TRUE(h.dsc.store("svc-3", kK3));
+    h.ses.play("svc-3", {});
+    lock_and_feed(h, h.gen.frames(51));
+    ASSERT_EQ(h.ses.state().state, al::State::Playing);
+    const std::uint64_t g = h.ses.generation();
+    const std::size_t events = h.states.size();
+    set_key(h, "svc-4", kK4);
+    h.settle();
+    EXPECT_TRUE(h.dsc.has_key("svc-4"));
+    EXPECT_EQ(h.ses.generation(), g);
+    EXPECT_EQ(h.states.size(), events);
+}
+
+TEST(Tst142, SetKeyAfterTheKeyWasAcceptedDoesNotRestart) {   // T-25 of specification 1.3 (issue #22)
+    Harness h;
+    h.gen.key = kK3Bytes;
+    ASSERT_TRUE(h.dsc.store("svc-3", kK3));
+    h.ses.play("svc-3", {});
+    lock_and_feed(h, h.gen.frames(3));   // EV-KEY-OK; waiting for EV-SEG1 in validating_key
+    ASSERT_EQ(h.ses.state().state, al::State::ValidatingKey);
+    ASSERT_TRUE(h.logger.contains("key accepted service=svc-3"));
+    const std::uint64_t g = h.ses.generation();
+    set_key(h, "svc-3", kK3);
+    h.feed(h.gen.frames(51));
+    EXPECT_EQ(h.ses.generation(), g);
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+}
+
+TEST(Tst142, SetKeyAfterPmtWithoutKeyRestarts) {   // T-33: PMT parsed without a key (REQ-49 of 1.3)
+    Harness h;
+    h.gen.key = kK3Bytes;
+    h.ses.play("svc-3", {});
+    lock_and_feed(h, only_pid(h.gen.frames(1), {0, 4096}));   // PMT parsed, protection still unknown
+    ASSERT_EQ(h.ses.state().state, al::State::WaitingStream);
+    const std::uint64_t g = h.ses.generation();
+    const std::size_t from = h.states.size();
+    set_key(h, "svc-3", kK3);
+    lock_and_feed(h, h.gen.frames(51));
+    EXPECT_GT(h.ses.generation(), g);
+    EXPECT_EQ(since(h, from, 1), (std::vector<std::string>{"starting", "waiting_stream", "validating_key", "playing"}));
+}
+
+// ---------------------------------------------------------------- TST-143
+
+TEST(Tst143, TasksOfTheOldGenerationChangeNothing) {   // T-01, rule 2; REQ-56; US-18
+    Harness h;
+    h.http.script("POST", kHe + "/start", FakeHttpClient::Reply::file(200, "he_start.json").held());
+    h.ses.play("svc-4", {});
+    h.settle();
+    ASSERT_TRUE(h.tuner.emit(pal::TunerStatus::Locked));   // starts the stream deadline of generation 1
+    h.settle();
+    const auto* old_start = h.http.last("POST", kHe + "/start");
+    ASSERT_NE(old_start, nullptr);
+    const std::uint64_t old_id = old_start->id;
+
+    // Tasks of generation 1 posted but not yet executed: a filter-data task, a timer expiry and a
+    // tuner status. The /start response is released after the new play.
+    h.demux.feed(h.gen.frames(1)[0]);   // PAT on the open PAT filter
+    h.clock.advance(3000);              // the stream deadline expires: its task is queued
+    h.tuner.emit(pal::TunerStatus::Unlocked);
+    h.calls.clear();
+    h.http.script("POST", kHe + "/start", FakeHttpClient::Reply::file(200, "he_start.json"));
+
+    const std::uint64_t n = h.ses.play("svc-3", {});
+    EXPECT_EQ(n, 2u);
+    const std::vector<std::string> e = h.calls.entries();
+    EXPECT_LT(index_of(e, "cancel " + std::to_string(old_id)), e.size());   // pending /start cancelled
+    EXPECT_LT(index_of(e, "close_filter"), e.size());
+    EXPECT_LT(index_of(e, "close_session 1"), e.size());
+    EXPECT_FALSE(h.http.release(old_id));   // cancelled: never delivered (Section 3.9.1, rule 4)
+    h.settle();
+
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "stopped"}));
+    EXPECT_EQ(h.state_names(2), (std::vector<std::string>{"starting", "waiting_stream"}));
+    for (std::size_t i = 0; i < h.states.size(); ++i) {
+        if (h.states[i].session == 1 && h.states[i].state == al::State::Stopped) {
+            for (std::size_t j = i + 1; j < h.states.size(); ++j) EXPECT_EQ(h.states[j].session, 2u);
+        }
+    }
+    EXPECT_TRUE(h.logger.contains("discarded tuner status of generation 1"));
+    EXPECT_EQ(h.ses.state().state, al::State::WaitingStream);
+    EXPECT_TRUE(h.infos.empty());
+}
+
+// ---------------------------------------------------------------- TST-144
+
+TEST(Tst144, PlayInKeyRequiredAndError) {   // (1) T-01
+    Harness h;
+    to_key_required(h);
+    h.ses.play("svc-1", {});
+    h.settle();
+    EXPECT_EQ(h.state_names(1), (std::vector<std::string>{"starting", "waiting_stream", "key_required", "stopped"}));
+    EXPECT_EQ(h.state_names(2), (std::vector<std::string>{"starting", "waiting_stream"}));
+
+    h.ses.play("svc-9", {});   // unknown service: GET /services/svc-9 answers 404 (T-05)
+    h.settle();
+    ASSERT_EQ(h.state_names(3), (std::vector<std::string>{"starting", "error"}));
+    h.ses.play("svc-1", {});
+    h.settle();
+    EXPECT_EQ(h.state_names(3), (std::vector<std::string>{"starting", "error", "stopped"}));
+    EXPECT_EQ(h.state_names(4), (std::vector<std::string>{"starting", "waiting_stream"}));
+}
+
+TEST(Tst144, StopInPlayingKeyRequiredAndError) {   // (2), (3) T-02
+    Harness h;
+    h.play_until_playing();
+    h.calls.clear();
+    h.ses.stop();
+    EXPECT_EQ(h.state_names(1).back(), "stopped");
+    EXPECT_LT(index_of(h.calls.entries(), "POST " + kHe + "/stop"), h.calls.entries().size());   // RELEASE
+
+    for (int variant = 0; variant < 2; ++variant) {
+        SCOPED_TRACE(variant == 0 ? "key_required" : "error");
+        Harness k;
+        if (variant == 0) {
+            to_key_required(k);
+        } else {
+            k.ses.play("svc-9", {});
+            k.settle();
+            ASSERT_EQ(k.ses.state().state, al::State::Error);
+        }
+        k.calls.clear();
+        k.ses.stop();
+        EXPECT_EQ(k.ses.state().state, al::State::Stopped);
+        EXPECT_EQ(k.states.back().state, al::State::Stopped);
+        std::string calls;
+        for (const std::string& c : k.calls.entries()) calls += c + "; ";
+        EXPECT_TRUE(k.calls.entries().empty()) << "no PAL call: nothing left to release; calls: " << calls;
+    }
+}
+
+// ---------------------------------------------------------------- TST-147
+
+TEST(Tst147, LogOfEverySession) {   // REQ-59 for the sessions of TST-131 and TST-139 – TST-141
+    Harness h;
+    h.play_until_playing("svc-1");   // TST-131
+    to_key_required(h);              // TST-139: session 2
+    set_key(h, "svc-3", kKX);        // TST-141
+    lock_and_feed(h, h.gen.frames(3));
+    set_key(h, "svc-3", kK3);        // TST-140
+    lock_and_feed(h, h.gen.frames(51));
+    ASSERT_EQ(h.ses.state().state, al::State::Playing);
+
+    auto has = [&](const std::string& module, const std::string& text) {
+        for (const auto& line : h.logger.lines()) {
+            if (line.module == module && line.message.find(text) != std::string::npos) return true;
+        }
+        return false;
+    };
+    // play (service, start)
+    EXPECT_TRUE(has("AL-SES", "play service=svc-1 start=live session=1"));
+    EXPECT_TRUE(has("AL-SES", "play service=svc-3 start=" + std::to_string(kArchiveT) + " session=2"));
+    // head-end session (id, SSRC, start time)
+    EXPECT_TRUE(has("AL-HEC", "start ok session=1 headend_session=hs-000017 ssrc="));
+    EXPECT_TRUE(has("AL-HEC", "start ok session=2 headend_session=hs-000017 ssrc="));
+    EXPECT_TRUE(has("AL-HEC", "start_time=1794999600"));
+    // PAT / PMT result
+    EXPECT_TRUE(has("AL-PSI", "PAT program=1 pmt_pid=4096"));
+    EXPECT_TRUE(has("AL-PSI", "PMT pcr_pid=256 video=256/0x1B audio=257/0x0F"));
+    // protection decision, key accepted / rejected
+    EXPECT_TRUE(has("AL-DSC", "protection clear session=1"));
+    EXPECT_TRUE(has("AL-DSC", "protection protected key_set=false session=2"));
+    EXPECT_TRUE(has("AL-DSC", "protection protected key_set=true session=2"));
+    EXPECT_TRUE(has("AL-DSC", "key rejected service=svc-3 key=0011\xE2\x80\xA6 session=2"));
+    EXPECT_TRUE(has("AL-DSC", "key accepted service=svc-3 key=3A7F\xE2\x80\xA6 session=2"));
+    // every state change (Section 3.6.3 values) of both sessions
+    for (const char* change : {"state starting -> waiting_stream session=1", "state waiting_stream -> playing session=1",
+                               "state playing -> stopped session=1", "state waiting_stream -> key_required session=2",
+                               "state waiting_stream -> validating_key session=2",
+                               "state validating_key -> key_required session=2",
+                               "state validating_key -> playing session=2"}) {
+        EXPECT_TRUE(has("AL-SES", change)) << change;
+    }
+    EXPECT_GE(h.logger.count_containing("state starting session=2"), 3u);   // the play and two restarts
 }
 
 }  // namespace
