@@ -1,0 +1,26 @@
+TESTOUT of TST-503 (Section 5.1.6)
+Command: tests/integration/run_pal.py --tests 503 --evidence
+Commit: d49a08e6  Date: 2026-11-27
+
+PASS 1: /start svc-1 with T = 1795800300: start_time = 1795800300
+PASS 2: first decodable frame written as PNG
+     PNG for inspection: time code 05:00 +/- 1 s and "Weather Today": /tmp/run_pal-w6jt1vsz/tst503-first-frame.png
+PASS 3: PID 0: 62 packets, all '00'
+PASS 3: PID 4096: 62 packets, all '00'
+PASS 3: PID 256: 8738 of 8738 packets with >= 16 payload bytes have '10'
+PASS 3: PID 257: 477 of 477 packets with >= 16 payload bytes have '10'
+PASS 3: ffprobe reads PAT and PMT of the encrypted stream (program with PMT PID 4096 and its streams)
+Status: passed pending the PHOTO inspection
+
+--- rtp_capture svc-3 ---
+datagrams=1741
+invalid=0
+sequence_gaps=0
+late_or_duplicate=0
+first_datagram_ts_packets=2
+first_datagram_pids=0,4096
+first_arrival_ms=1795800717431
+last_arrival_ms=1795800722662
+bitrate_last_10s_mbps=3.503
+ts_sync_errors=0
+ts_bytes=2290216

@@ -1,0 +1,22 @@
+--- headend.log ---
+2026-11-27T18:32:03.086 INFO [SRV-HEC] start session_id=hs-000004 service=svc-1 start=live client=127.0.0.1:5004 ssrc=1180331842 start_time=1795800723 offset=53812556
+2026-11-27T18:32:03.086 INFO [SRV-RTP] send session_id=hs-000004 to 127.0.0.1:5004 from offset=53812556 content time 122.999
+2026-11-27T18:32:18.602 INFO [SRV-RTP] sender ended session_id=hs-000004 datagrams=5159
+2026-11-27T18:32:18.602 WARN [SRV-HEC] session expired session_id=hs-000004 (no start or keepalive for 15.5 s)
+2026-11-27T18:32:23.641 INFO [SRV-HEC] start session_id=hs-000005 service=svc-1 start=live client=127.0.0.1:5004 ssrc=1180331842 start_time=1795800743 offset=62562640
+2026-11-27T18:32:23.641 INFO [SRV-RTP] send session_id=hs-000005 to 127.0.0.1:5004 from offset=62562640 content time 142.999
+2026-11-27T18:32:28.643 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:33.645 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:38.647 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:43.648 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:48.650 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:53.652 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:32:58.656 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:03.658 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:08.659 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:13.660 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:18.662 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:23.663 INFO [SRV-HEC] keepalive session_id=hs-000005
+2026-11-27T18:33:24.382 INFO [SRV-RTP] sender ended session_id=hs-000005 datagrams=20194
+2026-11-27T18:33:24.382 INFO [SRV-HEC] stop session_id=hs-000005
+--- mw_server.log ---

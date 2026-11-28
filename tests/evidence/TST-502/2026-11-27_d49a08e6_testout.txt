@@ -1,0 +1,29 @@
+TESTOUT of TST-502 (Section 5.1.6)
+Command: tests/integration/run_pal.py --tests 502 --evidence
+Commit: d49a08e6  Date: 2026-11-27
+
+PASS POST /start svc-1 live: response of 3.3.1 (session_id, service_id, start_time 1795800693 for a request at 1795800693, ssrc, payload_type 33)
+PASS POST /stop: 200
+PASS all RTP headers valid (invalid=0)
+PASS no sequence gap (0)
+PASS first datagram: 2 TS packets, PAT and PMT (2 on 0,4096)
+PASS bitrate of the last 10 s 3.501 Mbit/s (3.5 +/- 5 %)
+PASS last datagram -3 ms after the /stop response (<= 100 ms)
+PASS ffprobe: one program (1)
+PASS ffprobe: PMT PID 4096 (4096)
+PASS ffprobe: H.264 1280x720 on PID 256
+PASS ffprobe: AAC on PID 257
+Status: passed
+
+--- rtp_capture ---
+datagrams=4989
+invalid=0
+sequence_gaps=0
+late_or_duplicate=0
+first_datagram_ts_packets=2
+first_datagram_pids=0,4096
+first_arrival_ms=1795800693927
+last_arrival_ms=1795800708928
+bitrate_last_10s_mbps=3.501
+ts_sync_errors=0
+ts_bytes=6564584

@@ -1,0 +1,13 @@
+TESTOUT of TST-311 (Section 5.1.6)
+Command: build/bin/server_tests --gtest_filter='Tst311.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-311:
+TST-311 measured: T mod 600 = 0 s: p - c = 0.0000 s (limit 0 <= p - c < 0.04 s)
+TST-311 measured: T mod 600 = 1 s: p - c = 0.0005 s (limit 0 <= p - c < 0.04 s)
+TST-311 measured: T mod 600 = 299 s: p - c = 0.0009 s (limit 0 <= p - c < 0.04 s)
+TST-311 measured: T mod 600 = 300 s: p - c = 0.0010 s (limit 0 <= p - c < 0.04 s)
+TST-311 measured: T mod 600 = 599 s: p - c = 0.0011 s (limit 0 <= p - c < 0.04 s)
+[       OK ] Tst311.PositionIsPcrPacketAtMostOnePcrIntervalBeforeP (84 ms)
+[==========] 1 test from 1 test suite ran. (84 ms total)
+[  PASSED  ] 1 test.

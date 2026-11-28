@@ -1,0 +1,10 @@
+TESTOUT of TST-315 (Section 5.1.6)
+Command: build/bin/server_tests --gtest_filter='Tst315.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04 LTS, GCC 13.3.0, GoogleTest 1.14.0
+
+Test functions of TST-315:
+TST-315 measured: content skipped by 1.9986 s at block 335 (2 s within one PCR interval)
+TST-315 measured: largest deviation from the timeline 0.0016 s (limit 0.0311 s)
+[       OK ] Tst315.SenderSkipsForwardAfterAClockJumpOf2s (3174 ms)
+[==========] 1 test from 1 test suite ran. (3174 ms total)
+[  PASSED  ] 1 test.

@@ -194,14 +194,24 @@ export function createSessionPresenter(app) {
     model.update({ playerSession: null, firstPictureAt: null });
   }
 
-  // Re-renders the position indicator every second (REQ-43).
+  // Re-renders the position indicator every second (REQ-43). Once the first picture is known, every
+  // tick falls on firstPictureAt + k · 1 s, the moments at which the position of Section 4.4.2
+  // changes, so the shown second changes together with the picture and not up to 1 s later.
   function startPositionTimer() {
     stopPositionTimer();
     const tick = () => {
-      positionTimer = clock.setTimeout(tick, POSITION_UPDATE_MS);
+      positionTimer = clock.setTimeout(tick, nextPositionDelay());
       model.update({});
     };
-    positionTimer = clock.setTimeout(tick, POSITION_UPDATE_MS);
+    positionTimer = clock.setTimeout(tick, nextPositionDelay());
+  }
+
+  // Delay to the next tick: 1 s before the first picture, then to the next whole second after it.
+  function nextPositionDelay() {
+    const first = model.state.firstPictureAt;
+    if (first === null) return POSITION_UPDATE_MS;
+    const intoSecond = (((clock.now() - first) % POSITION_UPDATE_MS) + POSITION_UPDATE_MS) % POSITION_UPDATE_MS;
+    return POSITION_UPDATE_MS - intoSecond;
   }
 
   function stopPositionTimer() {
