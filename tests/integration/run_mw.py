@@ -8,7 +8,7 @@ contract_check.py), checks the expected results of Section 5.4.3 and stops the p
 (only these PIDs).
 
 Usage (Python standard library only, NFR-11), from any directory:
-  tests/integration/run_mw.py [--tests 521,522,523,524,525,526,527,533] [--build build] [--evidence]
+  tests/integration/run_mw.py [--tests 521,...,531,533] [--build build] [--evidence]
 
   --evidence  writes the evidence of the column "Evidence" of Section 5.4.3 to tests/evidence/<TST-id>/,
               named with the date and the commit (Section 5.1.6): TESTOUT for every test, the LOG
@@ -30,6 +30,14 @@ Tests:
            the HLS directory is listed every 50 ms
   TST-526  latest request wins: svc-4 then svc-3 after 50 ms, then 10 plays of svc-1 / svc-2 every 100 ms
   TST-527  set_key during a start: 20 ms after play, and as soon as validating_key is received
+  TST-528  P3 stopped during playing: no_signal after 3 s, error at the third failed keepalive (15 s), a new
+           play after the restart of P3; second run: P3 restarted within 5 s (SESSION_NOT_FOUND, no /stop)
+  TST-529  P3 suspended for 5 s (SIGSTOP / SIGCONT): no_signal, playing again, #EXT-X-DISCONTINUITY, skip
+           warning of the head-end, PNG of the first new segment (PHOTO: time code now mod 600 +/- 2 s)
+  TST-530  SIGTERM to P2: /stop and exit code 0 within 3 s; SIGKILL: session expired 15 - 16 s after the
+           last keepalive
+  TST-531  loop boundary: live started at now mod 600 = 580 (60 s) and archive at T mod 600 = 590 (30 s);
+           waits up to 10 min for the start point of the live run
   TST-533  contract_check.py on the JSON examples of Section 3, the response files of the fake HTTP
            client of WP-AL and the responses of P3 / P4 recorded by this run (the requests of
            TST-501 and TST-502)
@@ -319,18 +327,23 @@ def stream_type(stream):
     return int(tag, 16) & 0xFF
 
 
-def start_hls_check(ctx, session, seconds, png=()):
+def start_hls_check(ctx, session, seconds, png=(), after_discontinuity=False):
     out_dir = os.path.join(ctx.tmp, 'hls-%d' % session)
     os.makedirs(out_dir, exist_ok=True)
     cmd = [sys.executable, '-I', os.path.join(TOOLS, 'hls_check.py'), '--session', str(session), '--seconds',
            str(seconds), '--hls-dir', os.path.join(HLS_DIR, str(session)), '--out', out_dir]
     for seq in png:
         cmd += ['--png', str(seq)]
+    if after_discontinuity:
+        cmd.append('--png-after-discontinuity')
     return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True), out_dir
 
 
-def finish_hls_check(proc):
+def finish_hls_check(proc, res=None):
     out, _ = proc.communicate()
+    if res is not None:   # the errors found, at most 10
+        for line in [l for l in out.splitlines() if l.startswith('ERROR')][:10]:
+            res.note('hls_check: ' + line)
     return proc.returncode, out
 
 
@@ -449,7 +462,7 @@ def tst522(ctx):
                       % (service, CONTENT[service], got or info))
 
             ui.pump(30.0)   # run 30 s
-            code, out = finish_hls_check(hls)
+            code, out = finish_hls_check(hls, res)
             res.files['hls_check session %d' % n] = out
             summary = [l for l in out.splitlines() if 'playlist loads' in l or l.startswith('directory ')]
             for line in summary:
@@ -566,7 +579,7 @@ def tst523(ctx):
             res.check(ok, '1: stream_info program 2, PMT 768, video 1025, audio 1026 (Section 5.2.1, test set) (%s)'
                       % (info or 'none'))
             res.check(t is not None, '1: playing (%s)' % ui.states(n))
-            code, out = finish_hls_check(hls)
+            code, out = finish_hls_check(hls, res)
             res.files['hls_check session %d' % n] = out
             pid_sets = set(re.findall(r' PIDs ([0-9,]+);', out))
             res.check(code == 0 and pid_sets == {'0,768,1025,1026'},
@@ -610,7 +623,7 @@ def tst524(ctx):
             d = m['data'] if m else {}
             res.check(d.get('start') == T and d.get('start_time') == T,
                       '1: session_state start = start_time = T = %d (%s / %s)' % (T, d.get('start'), d.get('start_time')))
-            code, out = finish_hls_check(hls)
+            code, out = finish_hls_check(hls, res)
             res.files['hls_check session %d' % n] = out
             res.check(code == 0, 'hls_check.py: 0 errors (exit code %d)' % code)
             png_of(ctx, res, out_dir, 0, 'tst524-svc-2.png',
@@ -681,7 +694,7 @@ def tst525(ctx):
         res.check(t is not None and d.get('start') == T and d.get('start_time') == T,
                   '3: starting ... playing with start = start_time = T (%s, %s / %s)'
                   % (ui.states(n), d.get('start'), d.get('start_time')))
-        code, out = finish_hls_check(hls)
+        code, out = finish_hls_check(hls, res)
         res.files['hls_check session %d' % n] = out
         res.check(code == 0, '3: hls_check.py: 0 errors (exit code %d)' % code)
         png_of(ctx, res, out_dir, 0, 'tst525-svc-3.png',
@@ -808,6 +821,239 @@ def tst527(ctx):
     check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(527)])
     return res
 
+# ---------------------------------------------------------------- helpers of 13c
+
+def log_lines_with(lines, text):
+    return [(log_time_ms(l), l) for l in lines if text in l]
+
+
+def headend_session_of(ctx, session):
+    start_ok = [l for l in ctx.logs.lines('P2') if 'start ok session=%d ' % session in l]
+    m = re.search(r'headend_session=(\S+)', start_ok[-1]) if start_ok else None
+    return m.group(1) if m else None
+
+
+def play_until_playing(res, ui, service, label, start='live'):
+    n, since = play(res, ui, service, start, label=label)
+    t, _ = ui.wait_state(n, 'playing', 10.0, since) if n else (None, None)
+    res.check(t is not None, '%s: %s playing (%s)' % (label, service, ui.states(n) if n else '-'))
+    return n
+
+
+# ---------------------------------------------------------------- TST-528
+
+def tst528(ctx):
+    res = Result(528)
+    ctx.procs.ensure('P4', 'P3', 'P2')
+    p2 = ctx.procs.procs['P2'].pid
+    ui = Ui(ctx.record(528))
+    try:
+        n = play_until_playing(res, ui, 'svc-1', 'precondition')
+        ui.pump(6.0)   # at least one successful keepalive
+        since = len(ui.messages)
+        t_stop = now_ms()   # 1. the head-end sends until it is stopped: the time of the last datagram
+        code = ctx.procs.stop('P3')
+        res.note('P3 stopped with SIGTERM, exit code %s' % code)
+        t, m = ui.wait_state(n, 'no_signal', 6.0, since)
+        if t:
+            res.measured('no_signal %d ms after the stop of P3 (limit 3 000 +/- 500 ms)' % (t - t_stop))
+        res.check(t is not None and m['data'].get('reason') == 'data_lost' and 2500 <= t - t_stop <= 3500,
+                  '1: no_signal data_lost 3 s +/- 0.5 s after the last datagram')
+        t_err, m = ui.wait_state(n, 'error', 25.0, since)   # 2. wait (25 s in all)
+        ui.pump(max(0.0, (t_stop + 25000 - now_ms()) / 1000.0))
+        code_err = (m['data'].get('error') or {}).get('code') if m else None
+        hs = headend_session_of(ctx, n)
+        oks = [t for t, _ in log_lines_with(ctx.logs.lines('P2'), 'keepalive ok headend_session=%s' % hs) if t]
+        sent = log_lines_with(ctx.logs.lines('P2'), '[AL-API] send event session_state session=%d state=error' % n)
+        if oks and sent:
+            res.measured('error %d ms after the last successful keepalive (limit 15 000 +/- 500 ms)' % (sent[-1][0] - oks[-1]))
+        res.check(code_err == 'HEADEND_UNREACHABLE' and oks and sent and 14500 <= sent[-1][0] - oks[-1] <= 15500,
+                  '2: error HEADEND_UNREACHABLE at the third failed keepalive, 15 s +/- 0.5 s after the last '
+                  'successful one (%s, %s)' % (code_err, ui.states(n)))
+        failed = log_lines_with(ctx.logs.lines('P2'), 'keepalive failed (')
+        res.note('failed keepalives logged: %d' % len(failed))
+
+        ctx.procs.start('P3')   # 3.
+        n2 = play_until_playing(res, ui, 'svc-2', '3')
+        res.check(ctx.procs.running('P2') and ctx.procs.procs['P2'].pid == p2, '3: without restarting P2 (pid %d)' % p2)
+
+        # 4. second run: P3 stopped and started again within 5 s.
+        ui.pump(6.0)
+        hs2 = headend_session_of(ctx, n2)
+        since = len(ui.messages)
+        t0 = now_ms()
+        ctx.procs.stop('P3')
+        opened = ctx.procs.start('P3')
+        res.measured('P3 restarted in %d ms (limit 5 000 ms)' % (opened - t0))
+        t, m = ui.wait_state(n2, 'error', 12.0, since)
+        code_err = (m['data'].get('error') or {}).get('code') if m else None
+        nf = log_lines_with(ctx.logs.lines('P2'), 'keepalive')
+        not_found = [l for _, l in nf if 'SESSION_NOT_FOUND' in l]
+        res.check(code_err == 'HEADEND_UNREACHABLE' and not_found and opened - t0 <= 5000,
+                  '4: error HEADEND_UNREACHABLE at the first keepalive after the restart (SESSION_NOT_FOUND) (%s)'
+                  % ui.states(n2))
+        ui.pump(1.0)
+        stops = [l for t, l in log_lines_with(ctx.logs.lines('P2'), '[AL-HEC] stop headend_session=%s' % hs2)
+                 if t is not None and t >= t0]   # P3 restarted: the same id may exist from an earlier run
+        res.check(not stops, '4: no /stop sent for %s (T-28)' % hs2)
+    finally:
+        ui.close()
+    ctx.procs.ensure('P3')
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(528)])
+    return res
+
+
+# ---------------------------------------------------------------- TST-529
+
+def tst529(ctx):
+    res = Result(529)
+    ctx.procs.ensure('P4', 'P3', 'P2')
+    ui = Ui(ctx.record(529))
+    try:
+        n = play_until_playing(res, ui, 'svc-1', 'precondition')
+        hls, out_dir = start_hls_check(ctx, n, 25, after_discontinuity=True)
+        ui.pump(4.0)
+        since = len(ui.messages)
+        ctx.procs.send('P3', signal.SIGSTOP)   # 1.
+        t_stop = now_ms()
+        ui.pump(5.0)
+        ctx.procs.send('P3', signal.SIGCONT)
+        t_cont = now_ms()
+        res.note('P3 suspended for %d ms' % (t_cont - t_stop))
+        t_ns, m = ui.wait_state(n, 'no_signal', 2.0, since)
+        res.check(t_ns is not None and m['data'].get('reason') == 'data_lost', '1: no_signal data_lost (%s)' % ui.states(n))
+        after = next((i for i, (_, mm) in enumerate(ui.messages) if mm is m), len(ui.messages)) if m else len(ui.messages)
+        t_pl, _ = ui.wait_state(n, 'playing', 5.0, after)
+        if t_pl:
+            res.measured('playing again %d ms after SIGCONT (the first new datagram comes after it; limit 1 000 ms)'
+                         % (t_pl - t_cont))
+        res.check(t_pl is not None and t_pl - t_cont <= 1000,
+                  '1: playing of the same session within 1 s after the first new datagram')
+        code, out = finish_hls_check(hls)
+        res.files['hls_check session %d' % n] = out
+        res.check('error' not in ui.states(n), '1: no error (%s)' % ui.states(n))
+        disc = [l for l in out.splitlines() if 'after #EXT-X-DISCONTINUITY' in l]
+        res.check(bool(disc), '1: new segments listed, the first one after #EXT-X-DISCONTINUITY (%s)'
+                  % (disc[0].split(' duration')[0] if disc else 'none'))
+        # Not an expected result of TST-529: what hls_check.py finds besides (IF-INT-02, Section 3.7) is
+        # reported as a finding; the segment closed at the forward PCR jump of the head-end skip is tracked
+        # by the issue on REQ-24.
+        errors = [l for l in out.splitlines() if l.startswith('ERROR')]
+        if errors:
+            res.note('FINDING outside the expected result (hls_check.py exit code %d, %d error line(s)):' % (code, len(errors)))
+            for line in errors[:10]:
+                res.note('  ' + line)
+        late = [l for l in ctx.logs.lines('P3') if '[SRV-RTP] late by' in l]
+        res.check(bool(late), '1: head-end log: skip warning (%s)' % (late[0][24:] if late else 'none'))
+        seq = int(re.search(r'seg-(\d+)\.ts', disc[0]).group(1)) if disc else None
+        if seq is not None:   # 2. the first video frame of the first new segment
+            png_of(ctx, res, out_dir, seq, 'tst529-svc-1.png',
+                   'the time code %s (now mod 600 at the resume) +/- 2 s and "Demo One"' % time_code(t_cont // 1000))
+    finally:
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(529)])
+    if not res.failures and res.photos:
+        res.status = 'passed pending the PHOTO inspection'
+    return res
+
+
+# ---------------------------------------------------------------- TST-530
+
+def tst530(ctx):
+    res = Result(530)
+    ctx.procs.ensure('P4', 'P3', 'P2')
+    ui = Ui(ctx.record(530))
+    try:   # 1. SIGTERM to P2
+        n = play_until_playing(res, ui, 'svc-1', '1')
+        hs = headend_session_of(ctx, n)
+    finally:
+        ui.close()
+    t0 = now_ms()
+    code = ctx.procs.stop('P2', signal.SIGTERM, timeout=10.0)
+    took = now_ms() - t0
+    res.measured('P2 exited %d ms after SIGTERM (limit 3 000 ms)' % took)
+    res.check(code == 0 and took <= 3000, '1: P2 exits with code 0 within 3 s (exit code %s)' % code)
+    time.sleep(0.3)
+    stop_lines = [l for l in ctx.logs.lines('P3') if '[SRV-HEC] stop session_id=%s' % hs in l]
+    res.check(bool(stop_lines) and 'reason=' not in stop_lines[-1], '1: head-end log /stop for %s (%s)'
+              % (hs, stop_lines[-1][24:] if stop_lines else 'none'))
+
+    ctx.procs.start('P2')   # 2. new run: SIGKILL to P2
+    ui = Ui(ctx.record(530, 'b'))
+    try:
+        n = play_until_playing(res, ui, 'svc-1', '2')
+        hs = headend_session_of(ctx, n)
+        ui.pump(6.0)
+    finally:
+        ui.close()
+    ctx.procs.stop('P2', signal.SIGKILL)
+    time.sleep(18.0)
+    he = ctx.logs.lines('P3')
+    keepalives = [t for t, _ in log_lines_with(he, '[SRV-HEC] keepalive session_id=%s' % hs) if t]
+    expired = [t for t, _ in log_lines_with(he, 'session expired session_id=%s' % hs) if t]
+    if keepalives and expired:
+        res.measured('session expired %d ms after the last keepalive (limit 15 000 - 16 000 ms)'
+                     % (expired[0] - keepalives[-1]))
+    res.check(keepalives and expired and 15000 <= expired[0] - keepalives[-1] <= 16000,
+              '2: head-end log "session expired" for %s 15 - 16 s after the last keepalive' % hs)
+    ctx.procs.ensure('P2')
+    for part in ('', 'b'):   # one recording per connection
+        check_contract(res, '--kind ws (recording of run %s)' % (part or 'a'), ['--kind', 'ws', ctx.record(530, part)])
+    return res
+
+
+# ---------------------------------------------------------------- TST-531
+
+def loop_run(ctx, res, ui, label, start, seconds):
+    n, since = play(res, ui, 'svc-1', start, label=label)
+    if not n:
+        return
+    hls, _ = start_hls_check(ctx, n, seconds)
+    ui.wait_state(n, 'playing', 10.0, since)
+    ui.pump(seconds)
+    code, out = finish_hls_check(hls, res)
+    res.files['hls_check %s session %d' % (label, n)] = out
+    summary = next((l for l in out.splitlines() if 'playlist loads' in l), '')
+    res.note('%s: %s' % (label, summary))
+    m = re.search(r'(\d+) discontinuities, discontinuity sequence up to (\d+)', summary)
+    disc = [l for l in out.splitlines() if 'after #EXT-X-DISCONTINUITY' in l]
+    res.check(bool(disc), '%s: #EXT-X-DISCONTINUITY before the first segment after the loop boundary (%s)'
+              % (label, disc[0].split(' duration')[0] if disc else 'none'))
+    res.check(m is not None and int(m.group(2)) >= 1, '%s: later #EXT-X-DISCONTINUITY-SEQUENCE:1 (%s)'
+              % (label, m.group(0) if m else summary))
+    res.check(code == 0, '%s: all segments probe and decode (hls_check exit code %d)' % (label, code))
+    stats = [l for l in ctx.logs.lines('P2') if '[AL-SES] stats ' in l and ' session=%d ' % n in l + ' ']
+    lost = [int(x) for x in re.findall(r'rtp_lost=(\d+)', '\n'.join(stats))]
+    res.check(bool(lost) and max(lost) == 0, '%s: middleware statistics rtp_lost = 0 (%d stats lines, %s)'
+              % (label, len(stats), lost))
+
+
+def tst531(ctx):
+    res = Result(531)
+    ctx.procs.ensure('P4', 'P3', 'P2')
+    ui = Ui(ctx.record(531))
+    try:
+        now = int(time.time())
+        wait = (580 - now % 600) % 600
+        if wait > 60:   # step 2 first: it fits into the waiting time of step 1
+            T = now - ((now - 590) % 600) - (600 if (now - 590) % 600 == 0 else 0)
+            loop_run(ctx, res, ui, '2 (T mod 600 = 590)', T, 30)
+            now = int(time.time())
+            wait = (580 - now % 600) % 600
+            res.note('waiting %d s for now mod 600 = 580 (step 1)' % wait)
+            ui.pump(wait)
+            loop_run(ctx, res, ui, '1 (live at now mod 600 = 580)', 'live', 60)
+        else:
+            ui.pump(wait)
+            loop_run(ctx, res, ui, '1 (live at now mod 600 = 580)', 'live', 60)
+            now = int(time.time())
+            T = now - ((now - 590) % 600) - (600 if (now - 590) % 600 == 0 else 0)
+            loop_run(ctx, res, ui, '2 (T mod 600 = 590)', T, 30)
+    finally:
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(531)])
+    return res
+
 # ---------------------------------------------------------------- TST-533
 
 def tst533(ctx):
@@ -879,7 +1125,8 @@ def http(url, body=None, timeout=5):
         return e.code, (e.read() or b'').decode('utf-8', 'replace')
 
 
-TESTS = {521: tst521, 522: tst522, 523: tst523, 524: tst524, 525: tst525, 526: tst526, 527: tst527, 533: tst533}
+TESTS = {521: tst521, 522: tst522, 523: tst523, 524: tst524, 525: tst525, 526: tst526, 527: tst527, 528: tst528,
+         529: tst529, 530: tst530, 531: tst531, 533: tst533}
 
 
 class Context:
@@ -916,7 +1163,7 @@ def main():
     ctx.tmp = tempfile.mkdtemp(prefix='run_mw-')
     ctx.procs = Processes(args.build, ctx.tmp)
     ctx.logs = Logs()
-    ctx.record = lambda tst: os.path.join(ctx.tmp, 'tst%d-ws.jsonl' % tst)
+    ctx.record = lambda tst, part='': os.path.join(ctx.tmp, 'tst%d%s-ws.jsonl' % (tst, part))
     os.makedirs(os.path.join(REPO, 'logs'), exist_ok=True)
     results = []
     try:
