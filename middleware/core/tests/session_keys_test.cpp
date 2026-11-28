@@ -559,6 +559,12 @@ TEST(Tst144, PlayInKeyRequiredAndError) {   // (1) T-01
     h.settle();
     EXPECT_EQ(h.state_names(3), (std::vector<std::string>{"starting", "error", "stopped"}));
     EXPECT_EQ(h.state_names(4), (std::vector<std::string>{"starting", "waiting_stream"}));
+    // Section 3.6.3: reason and error are null in state stopped (found by TST-528 with contract_check.py).
+    for (const al::SessionState& s : h.states) {
+        if (s.state != al::State::Stopped) continue;
+        EXPECT_EQ(s.error, std::nullopt) << "session " << s.session;
+        EXPECT_EQ(s.reason, std::nullopt) << "session " << s.session;
+    }
 }
 
 TEST(Tst144, StopInPlayingKeyRequiredAndError) {   // (2), (3) T-02
@@ -583,6 +589,8 @@ TEST(Tst144, StopInPlayingKeyRequiredAndError) {   // (2), (3) T-02
         k.ses.stop();
         EXPECT_EQ(k.ses.state().state, al::State::Stopped);
         EXPECT_EQ(k.states.back().state, al::State::Stopped);
+        EXPECT_EQ(k.states.back().error, std::nullopt);   // Section 3.6.3
+        EXPECT_EQ(k.states.back().reason, std::nullopt);
         std::string calls;
         for (const std::string& c : k.calls.entries()) calls += c + "; ";
         EXPECT_TRUE(k.calls.entries().empty()) << "no PAL call: nothing left to release; calls: " << calls;

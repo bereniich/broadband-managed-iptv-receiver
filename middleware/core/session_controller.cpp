@@ -592,6 +592,7 @@ void SessionController::set_state(State state, std::optional<std::string> reason
     const State previous = s_->state;
     s_->state = state;
     s_->reason = std::move(reason);
+    if (state != State::Error) s_->error.reset();   // Section 3.6.3: the error object only in state error
     log(pal::LogLevel::Info, std::string("state ") + to_string(previous) + " -> " + to_string(state));
     emit_state();
 }
