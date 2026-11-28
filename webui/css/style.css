@@ -80,8 +80,10 @@ html, body {
   transform: translateX(-50%);
 }
 
+/* Above the key dialog, which is centred: "Protected service – press K to enter the key" stays shown
+   while the dialog is opened again with K (REQ-48, Section 4.4.3), so the two must not overlap. */
 #status {
-  top: 50%;
+  top: 25%;
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
