@@ -8,7 +8,7 @@ contract_check.py), checks the expected results of Section 5.4.3 and stops the p
 (only these PIDs).
 
 Usage (Python standard library only, NFR-11), from any directory:
-  tests/integration/run_mw.py [--tests 521,522,533] [--build build] [--evidence]
+  tests/integration/run_mw.py [--tests 521,522,523,524,525,526,527,533] [--build build] [--evidence]
 
   --evidence  writes the evidence of the column "Evidence" of Section 5.4.3 to tests/evidence/<TST-id>/,
               named with the date and the commit (Section 5.1.6): TESTOUT for every test, the LOG
@@ -21,6 +21,15 @@ Tests:
   TST-522  svc-1 and svc-2 live for 30 s each: events, stream_info against ffprobe of the content
            file, hls_check.py (playlist, segments, PIDs, at most 8 segment files), keepalives every
            5 s +/- 0.5 s in the head-end log, PNG of a segment (PHOTO: burned-in service name)
+  TST-523  test set (server/config.test.json): svc-2 with PIDs 768 / 1025 / 1026, svc-4 with K4 (key_required,
+           then playing), svc-1 without video (error INVALID_STREAM)
+  TST-524  archive start of svc-2 at the previous event: start = start_time = T; PNG of the first frame of
+           seg-0.ts (PHOTO: time code T mod 600 +/- 1 s)
+  TST-525  protected rewind of svc-3 at T: no key, KX (rejected within 3 s of the first Locked of the attempt),
+           K3 after 60 s (playing from T; PNG of seg-0.ts), live without the key dialog, K3 / K4 for svc-4;
+           the HLS directory is listed every 50 ms
+  TST-526  latest request wins: svc-4 then svc-3 after 50 ms, then 10 plays of svc-1 / svc-2 every 100 ms
+  TST-527  set_key during a start: 20 ms after play, and as soon as validating_key is received
   TST-533  contract_check.py on the JSON examples of Section 3, the response files of the fake HTTP
            client of WP-AL and the responses of P3 / P4 recorded by this run (the requests of
            TST-501 and TST-502)
@@ -30,8 +39,11 @@ Section 5.1.5: the executing member checks the PNG, and only then the test is re
 Expected values come from the specification (Sections 3, 5.2.1, 5.2.3, 5.4.3) and from ffprobe,
 never from the output of the code under test (Section 5.1.7, rule 5).
 
+Every test that depends on the stored keys (TST-523, 525, 526, 527) restarts P2 first, so that no key
+of an earlier test is stored (as PRE-2 of Section 5.5.1).
+
 Needs: build/bin/dtv-middleware, headend, mw_server; ffmpeg / ffprobe; the content of Section 5.2.1
-(with the encrypted files of package_ts); free ports 8080, 8081, 8090 (TCP) and 5004 (UDP). The exit
+and its test set (with the encrypted files of package_ts); free ports 8080, 8081, 8090 (TCP) and 5004 (UDP). The exit
 code is 0 if every executed test passed.
 """
 
@@ -46,6 +58,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -56,6 +69,7 @@ sys.path.insert(0, TOOLS)
 import ws_client  # noqa: E402  (tests/tools/ws_client.py: the RFC 6455 client of Section 5.4.2)
 
 SERVER_CONFIG = os.path.join('server', 'config.json')
+TEST_CONFIG = os.path.join('server', 'config.test.json')         # test set, Section 5.2.1
 MW_CONFIG = os.path.join('middleware', 'main', 'middleware.json')
 MW_PORT, HE_PORT, UI_PORT, RTP_PORT = 8080, 8081, 8090, 5004    # Section 2.2.5
 HLS_DIR = '/tmp/m15-hls'                                        # Section 4.2.5
@@ -65,6 +79,9 @@ LOGS = {'P2': 'logs/middleware.log', 'P3': 'logs/headend.log', 'P4': 'logs/mw_se
 SERVICES = [('svc-1', 1, 'Demo One', False), ('svc-2', 2, 'Demo Two', False),
             ('svc-3', 3, 'Premium One', True), ('svc-4', 4, 'Premium Two', True)]
 CONTENT = {'svc-1': 'content/svc-1.ts', 'svc-2': 'content/svc-2.ts'}   # Section 5.2.1, reference set
+K3 = '3A7F1C9E5B2D8046A1E3C5079B4D6F28'   # keys of Section 5.2.2 (test code only, NFR-08)
+K4 = 'C04E92B7165FD83A2E7B0C9145D6A3F1'
+KX = '00112233445566778899AABBCCDDEEFF'
 LOG_TIME = re.compile(r'^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}) ')       # NFR-13
 
 
@@ -130,10 +147,12 @@ class Processes:
                 'P2': ('dtv-middleware', MW_CONFIG, UI_PORT)}
 
     def __init__(self, build, tmp):
-        self.build, self.tmp, self.procs = build, tmp, {}
+        self.build, self.tmp, self.procs, self.configs = build, tmp, {}, {}
 
-    def start(self, name):
-        exe, config, port = self.COMMANDS[name]
+    def start(self, name, config=None):
+        exe, default_config, port = self.COMMANDS[name]
+        config = config or default_config
+        self.configs[name] = config
         out = open(os.path.join(self.tmp, '%s-%d.out' % (exe, now_ms())), 'w')
         p = subprocess.Popen([os.path.join(self.build, 'bin', exe), '--config', config], cwd=REPO,
                              stdout=out, stderr=subprocess.STDOUT)
@@ -148,9 +167,16 @@ class Processes:
         return p is not None and p.poll() is None
 
     def ensure(self, *names):
+        """Running with the reference configuration."""
         for name in names:
+            if self.running(name) and self.configs.get(name) != self.COMMANDS[name][1]:
+                self.stop(name)
             if not self.running(name):
                 self.start(name)
+
+    def restart(self, name, config=None):
+        self.stop(name)
+        return self.start(name, config)
 
     def send(self, name, sig):
         self.procs[name].send_signal(sig)
@@ -221,6 +247,15 @@ class Ui:
         return cid
 
     def pump(self, seconds):
+        """Receives for the whole `seconds` (a step delay of the test)."""
+        end = time.time() + seconds
+        while True:
+            self._receive(max(0.0, end - time.time()))
+            if time.time() >= end:
+                return
+
+    def _receive(self, seconds):
+        """Receives until the first messages arrive or `seconds` have passed."""
         for opcode, payload in self.conn.receive(seconds):
             if opcode != ws_client.OP_TEXT:
                 continue
@@ -241,7 +276,7 @@ class Ui:
                     return t, m
             if time.time() >= end:
                 return None, None
-            self.pump(min(0.05, max(0.0, end - time.time())))
+            self._receive(min(0.05, max(0.0, end - time.time())))
 
     def call(self, name, params=None, timeout_s=2.0):
         """Sends a command and waits for its response (Section 3.6.1: within 1 s)."""
@@ -449,6 +484,330 @@ def tst522(ctx):
     return res
 
 
+# ---------------------------------------------------------------- helpers of 13b
+
+def previous_event_start(now):
+    """Start of the event before the running one (Section 5.5.1): now - (now mod 300) - 300."""
+    return now - now % 300 - 300
+
+
+def play(res, ui, service, start='live', label=None):
+    """Sends play; returns the session number (or None) and the index of the first message after it."""
+    since = len(ui.messages)
+    r, _ = ui.call('play', {'service_id': service, 'start': start})
+    n = (r or {}).get('result', {}).get('session')
+    res.check(isinstance(n, int), '%s: play %s %s -> {"session": n} (%s)' % (label or service, service, start, r))
+    return n, since
+
+
+def set_key(res, ui, service, key, label):
+    r, _ = ui.call('set_key', {'service_id': service, 'key': key})
+    res.check(r is not None and r.get('ok') is True, '%s: set_key %s %s… -> ok' % (label, service, key[:4]))
+
+
+def last_state(ui, session):
+    states = ui.events('session_state', session)
+    return states[-1][1]['data'] if states else {}
+
+
+def png_of(ctx, res, hls_out_dir, seq, name, what):
+    png = os.path.join(hls_out_dir, 'seg-%d.png' % seq)
+    if res.check(os.path.exists(png), 'PNG of seg-%d.ts written' % seq):
+        photo = os.path.join(ctx.tmp, name)
+        shutil.copyfile(png, photo)
+        res.photos.append(photo)
+        res.note('PHOTO to inspect: %s must show %s' % (photo, what))
+
+
+class DirWatch:
+    """Lists a directory every 50 ms (TST-525) and keeps every file name it ever saw."""
+
+    def __init__(self, path):
+        self.path, self.seen, self.samples, self.running = path, set(), 0, True
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
+    def run(self):
+        while self.running:
+            try:
+                self.seen.update(os.listdir(self.path))
+            except OSError:
+                pass
+            self.samples += 1
+            time.sleep(0.05)
+
+    def stop(self):
+        self.running = False
+        self.thread.join()
+
+
+def time_code(t):
+    return '%02d:%02d' % ((t % 600) // 60, t % 60)
+
+
+# ---------------------------------------------------------------- TST-523
+
+def tst523(ctx):
+    res = Result(523)
+    ctx.procs.stop('P2')
+    ctx.procs.restart('P4', TEST_CONFIG)
+    ctx.procs.restart('P3', TEST_CONFIG)
+    ctx.procs.start('P2')
+    ui = Ui(ctx.record(523))
+    try:
+        n, since = play(res, ui, 'svc-2', label='1')   # 1.
+        if n:
+            t, _ = ui.wait_state(n, 'playing', 10.0, since)
+            hls, _ = start_hls_check(ctx, n, 6)
+            info = [m['data'] for _, m in ui.events('stream_info', n)]
+            got = info[0] if len(info) == 1 else {}
+            ok = (got.get('program_number') == 2 and got.get('pmt_pid') == 768 and got.get('pcr_pid') == 1025
+                  and (got.get('video') or {}).get('pid') == 1025 and (got.get('audio') or {}).get('pid') == 1026)
+            res.check(ok, '1: stream_info program 2, PMT 768, video 1025, audio 1026 (Section 5.2.1, test set) (%s)'
+                      % (info or 'none'))
+            res.check(t is not None, '1: playing (%s)' % ui.states(n))
+            code, out = finish_hls_check(hls)
+            res.files['hls_check session %d' % n] = out
+            pid_sets = set(re.findall(r' PIDs ([0-9,]+);', out))
+            res.check(code == 0 and pid_sets == {'0,768,1025,1026'},
+                      '1: segments contain PIDs 0 / 768 / 1025 / 1026 only (%s, hls_check exit code %d)'
+                      % (sorted(pid_sets), code))
+
+        n, since = play(res, ui, 'svc-4', label='2')   # 2.
+        if n:
+            t, _ = ui.wait_state(n, 'key_required', 10.0, since)
+            res.check(t is not None, '2: key_required (%s)' % ui.states(n))
+            set_key(res, ui, 'svc-4', K4, '2')
+            t, _ = ui.wait_state(n, 'playing', 10.0, since)
+            res.check(t is not None and last_state(ui, n).get('protected') is True,
+                      '2: then playing with protected true (%s)' % ui.states(n))
+
+        n, since = play(res, ui, 'svc-1', label='3')   # 3.
+        if n:
+            t, m = ui.wait_state(n, 'error', 10.0, since)
+            res.check(t is not None and (m['data'].get('error') or {}).get('code') == 'INVALID_STREAM',
+                      '3: error INVALID_STREAM (%s)' % (m['data'] if m else ui.states(n)))
+    finally:
+        ui.close()
+        ctx.procs.stop('P2')
+        ctx.procs.ensure('P4', 'P3')   # back to the reference configuration
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(523)])
+    return res
+
+
+# ---------------------------------------------------------------- TST-524
+
+def tst524(ctx):
+    res = Result(524)
+    ctx.procs.ensure('P4', 'P3', 'P2')
+    ui = Ui(ctx.record(524))
+    try:
+        T = previous_event_start(int(time.time()))
+        n, since = play(res, ui, 'svc-2', T, label='1')
+        if n:
+            hls, out_dir = start_hls_check(ctx, n, 8, png=(0,))
+            t, m = ui.wait_state(n, 'playing', 10.0, since)
+            d = m['data'] if m else {}
+            res.check(d.get('start') == T and d.get('start_time') == T,
+                      '1: session_state start = start_time = T = %d (%s / %s)' % (T, d.get('start'), d.get('start_time')))
+            code, out = finish_hls_check(hls)
+            res.files['hls_check session %d' % n] = out
+            res.check(code == 0, 'hls_check.py: 0 errors (exit code %d)' % code)
+            png_of(ctx, res, out_dir, 0, 'tst524-svc-2.png',
+                   'the time code %s (T mod 600) +/- 1 s and "Demo Two" (step 2, NFR-04)' % time_code(T))
+    finally:
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(524)])
+    if not res.failures and res.photos:
+        res.status = 'passed pending the PHOTO inspection'
+    return res
+
+
+# ---------------------------------------------------------------- TST-525
+
+def tst525(ctx):
+    res = Result(525)
+    ctx.procs.ensure('P4', 'P3')
+    ctx.procs.restart('P2')   # no key stored
+    ui = Ui(ctx.record(525))
+    watch = None
+    try:
+        T = previous_event_start(int(time.time()))
+        n, since = play(res, ui, 'svc-3', T, label='1')   # 1.
+        if not n:
+            return res
+        watch = DirWatch(os.path.join(HLS_DIR, str(n)))
+        t, m = ui.wait_state(n, 'key_required', 10.0, since)
+        d = m['data'] if m else {}
+        res.check(d.get('reason') == 'no_key' and d.get('start') == T,
+                  '1: key_required no_key, start = T = %d (%s)' % (T, d or ui.states(n)))
+        ui.pump(0.5)
+        start_ok = [l for l in ctx.logs.lines('P2') if 'start ok session=%d ' % n in l]
+        hs1 = re.search(r'headend_session=(\S+)', start_ok[-1]).group(1) if start_ok else None
+        res.check(hs1 is not None and any('[SRV-HEC] stop session_id=%s' % hs1 in l for l in ctx.logs.lines('P3')),
+                  '1: head-end log shows /stop for %s' % hs1)
+
+        since = len(ui.messages)   # 2.
+        set_key(res, ui, 'svc-3', KX, '2')
+        t, m = ui.wait(lambda m: m.get('name') == 'session_state' and m['data'].get('session') == n
+                       and m['data'].get('state') == 'key_required', 10.0, since)
+        d = m['data'] if m else {}
+        res.check(d.get('reason') == 'key_rejected' and 'validating_key' in ui.states(n),
+                  '2: validating_key, then key_required key_rejected (%s)' % ui.states(n))
+        ui.pump(0.3)
+        lines = ctx.logs.lines('P2')
+        rejected = next((log_time_ms(l) for l in lines if '[AL-API] send event session_state session=%d '
+                         'state=key_required reason=key_rejected' % n in l), None)
+        locked = [log_time_ms(l) for l in lines if '[AL-SES] tuner Locked session=%d ' % n in l]
+        locked = [x for x in locked if rejected is not None and x is not None and x <= rejected]
+        if rejected is not None and locked:
+            res.measured('key_rejected %d ms after the first Locked of the attempt (limit 3 000 ms, NFR-03)'
+                         % (rejected - locked[-1]))
+        res.check(rejected is not None and locked and rejected - locked[-1] <= 3000,
+                  '2: key_required key_rejected at most 3 s after the first RTP data of the attempt (middleware log)')
+        watch.stop()
+        segments = sorted(f for f in watch.seen if f.endswith('.ts') or f.endswith('.m3u8'))
+        res.check(not segments, '1, 2: no segment file and no playlist at any of %d listings every 50 ms (%s)'
+                  % (watch.samples, segments))
+        watch = None
+
+        res.note('waiting 60 s (step 3)')   # 3.
+        ui.pump(60.0)
+        since = len(ui.messages)
+        set_key(res, ui, 'svc-3', K3, '3')
+        hls, out_dir = start_hls_check(ctx, n, 10, png=(0,))
+        t, m = ui.wait_state(n, 'playing', 10.0, since)
+        d = m['data'] if m else {}
+        res.check(t is not None and d.get('start') == T and d.get('start_time') == T,
+                  '3: starting ... playing with start = start_time = T (%s, %s / %s)'
+                  % (ui.states(n), d.get('start'), d.get('start_time')))
+        code, out = finish_hls_check(hls)
+        res.files['hls_check session %d' % n] = out
+        res.check(code == 0, '3: hls_check.py: 0 errors (exit code %d)' % code)
+        png_of(ctx, res, out_dir, 0, 'tst525-svc-3.png',
+               'the time code %s (T mod 600) +/- 1 s, not %s (T + 60), and "Premium One"'
+               % (time_code(T), time_code(T + 60)))
+
+        n4, since = play(res, ui, 'svc-3', label='4')   # 4.
+        t, _ = ui.wait_state(n4, 'playing', 10.0, since)
+        res.check(t is not None and 'key_required' not in ui.states(n4),
+                  '4: svc-3 live plays without key_required (%s)' % ui.states(n4))
+
+        n5, since = play(res, ui, 'svc-4', label='5')   # 5.
+        ui.wait_state(n5, 'key_required', 10.0, since)
+        since = len(ui.messages)
+        set_key(res, ui, 'svc-4', K3, '5')
+        t, m = ui.wait_state(n5, 'key_required', 10.0, since)
+        res.check(t is not None and m['data'].get('reason') == 'key_rejected', '5: K3 for svc-4 rejected (%s)'
+                  % ui.states(n5))
+        since = len(ui.messages)
+        set_key(res, ui, 'svc-4', K4, '5')
+        t, _ = ui.wait_state(n5, 'playing', 10.0, since)
+        res.check(t is not None, '5: K4 for svc-4 accepted, playing (%s)' % ui.states(n5))
+    finally:
+        if watch:
+            watch.stop()
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(525)])
+    if not res.failures and res.photos:
+        res.status = 'passed pending the PHOTO inspection'
+    return res
+
+
+# ---------------------------------------------------------------- TST-526
+
+def tst526(ctx):
+    res = Result(526)
+    ctx.procs.ensure('P4', 'P3')
+    ctx.procs.restart('P2')
+    ui = Ui(ctx.record(526))
+    sessions = []
+    try:
+        for service, delay in [('svc-4', 0.05), ('svc-3', 0.1)] + [('svc-1' if k % 2 == 0 else 'svc-2', 0.1)
+                                                                    for k in range(10)]:
+            cid = ui.command('play', {'service_id': service, 'start': 'live'})
+            sessions.append((service, cid))
+            ui.pump(delay)
+        res.check(sessions[-1][0] == 'svc-2', 'the last play is svc-2')
+        t, r = ui.wait(lambda m: m.get('type') == 'response' and m.get('id') == sessions[-1][1], 2.0)
+        last = (r or {}).get('result', {}).get('session')
+        t, _ = ui.wait_state(last, 'playing', 10.0)
+        ui.pump(1.0)
+        res.check(t is not None and last_state(ui, last).get('service_id') == 'svc-2',
+                  'the last session %s reaches playing with service_id svc-2 (%s)' % (last, ui.states(last)))
+        # After every stopped of a session no further event of it.
+        late = []
+        for i, (_, m) in enumerate(ui.messages):
+            if m and m.get('name') == 'session_state' and m['data'].get('state') == 'stopped':
+                s = m['data']['session']
+                late += [m2['data'] for _, m2 in ui.messages[i + 1:] if m2 and m2.get('type') == 'event'
+                         and m2.get('data', {}).get('session') == s]
+        res.check(not late, 'after the stopped of a session no further event of it (%d late)' % len(late))
+        numbers = sorted({m['data']['session'] for _, m in ui.messages if m and m.get('name') == 'session_state'})
+        res.note('sessions %s; stopped: %s' % (numbers, sorted({m['data']['session'] for _, m in ui.messages if m
+                                                               and m.get('name') == 'session_state'
+                                                               and m['data'].get('state') == 'stopped'})))
+        he = ctx.logs.lines('P3')
+        started = [re.search(r'start session_id=(\S+)', l).group(1) for l in he if '[SRV-HEC] start session_id=' in l]
+        ended = {re.search(r'(?:stop|session expired) session_id=(\S+)', l).group(1) for l in he
+                 if re.search(r'\[SRV-HEC\] (stop|session expired) session_id=', l)}
+        alive = [s for s in started if s not in ended]
+        res.check(len(alive) == 1, 'the head-end has exactly one session at the end (started %d, ended %d, alive %s)'
+                  % (len(started), len(ended), alive))
+        dirs = sorted(os.listdir(HLS_DIR)) if os.path.isdir(HLS_DIR) else []
+        res.check(dirs == [str(last)], '/tmp/m15-hls contains only the directory of the last session (%s)' % dirs)
+        mw = ctx.logs.lines('P2')
+        errors = [l for l in mw if ' ERROR ' in l]
+        drops = [l for l in mw if re.search(r'discard|dropped', l, re.I) and ' DEBUG ' not in l]
+        res.check(not errors, 'middleware log: no ERROR line (%d)' % len(errors))
+        res.check(not drops, 'middleware log: discarded / dropped tasks of old generations only at DEBUG (%d other)'
+                  % len(drops))
+        for line in (errors + drops)[:10]:
+            res.note(line)
+    finally:
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(526)])
+    return res
+
+
+# ---------------------------------------------------------------- TST-527
+
+def tst527(ctx):
+    res = Result(527)
+    ctx.procs.ensure('P4', 'P3')
+    ctx.procs.restart('P2')
+    ui = Ui(ctx.record(527))
+    try:
+        set_key(res, ui, 'svc-3', KX, 'precondition (KX stored for svc-3)')
+        since = len(ui.messages)   # 1.
+        cid = ui.command('play', {'service_id': 'svc-3', 'start': 'live'})
+        ui.pump(0.02)
+        set_key(res, ui, 'svc-3', K3, '1 (20 ms after play)')
+        t, r = ui.wait(lambda m: m.get('type') == 'response' and m.get('id') == cid, 2.0, since)
+        n1 = (r or {}).get('result', {}).get('session')
+        t, _ = ui.wait_state(n1, 'playing', 10.0, since)
+        res.check(t is not None and 'key_required' not in ui.states(n1),
+                  '1: the session ends in playing, key_rejected never reported (%s)' % ui.states(n1))
+
+        set_key(res, ui, 'svc-3', KX, '2 (KX stored again)')   # 2.
+        n2, since = play(res, ui, 'svc-3', label='2')
+        t, _ = ui.wait_state(n2, 'validating_key', 10.0, since)
+        set_key(res, ui, 'svc-3', K3, '2 (as soon as validating_key is received)')
+        t, _ = ui.wait_state(n2, 'playing', 10.0, since)
+        res.check(t is not None and 'key_required' not in ui.states(n2),
+                  '2: the session ends in playing, key_rejected never reported (%s)' % ui.states(n2))
+
+        n3, since = play(res, ui, 'svc-3', label='K3 stored')
+        t, _ = ui.wait_state(n3, 'playing', 10.0, since)
+        res.check(t is not None and 'key_required' not in ui.states(n3),
+                  'K3 is the stored key afterwards: a new play svc-3 plays without key_required (%s)' % ui.states(n3))
+        res.check(not any('key rejected' in l for l in ctx.logs.lines('P2')),
+                  'middleware log: no "key rejected" line')
+    finally:
+        ui.close()
+    check_contract(res, '--kind ws (recording of this test)', ['--kind', 'ws', ctx.record(527)])
+    return res
+
 # ---------------------------------------------------------------- TST-533
 
 def tst533(ctx):
@@ -520,7 +879,7 @@ def http(url, body=None, timeout=5):
         return e.code, (e.read() or b'').decode('utf-8', 'replace')
 
 
-TESTS = {521: tst521, 522: tst522, 533: tst533}
+TESTS = {521: tst521, 522: tst522, 523: tst523, 524: tst524, 525: tst525, 526: tst526, 527: tst527, 533: tst533}
 
 
 class Context:
