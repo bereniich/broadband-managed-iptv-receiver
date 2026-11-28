@@ -38,6 +38,7 @@ add_executable(dtvcore_tests
     tests/psi_test.cpp
     tests/service_manager_test.cpp
     tests/session_controller_test.cpp
+    tests/session_keys_test.cpp
     tests/task_queue_test.cpp
     tests/ts_builder.cpp
     tests/ui_api_test.cpp
