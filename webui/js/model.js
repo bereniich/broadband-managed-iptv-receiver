@@ -92,10 +92,12 @@ export function mode(state) {
 
 // Playback position (REQ-43): startTime + (now − firstPictureAt) in ARCHIVE mode (startTime while
 // firstPictureAt is null), now in LIVE mode. Before start_time is known, the requested start is used.
+// firstPictureAt belongs to the player of the current session (Section 4.4.2); while the player of a
+// previous session still plays (a new session has not reached its first playing yet), it does not count.
 export function playbackPosition(state, nowMs) {
   if (mode(state) === 'LIVE') return nowSeconds(nowMs);
   const base = state.session.startTime ?? state.session.start;
-  if (state.firstPictureAt === null) return base;
+  if (state.firstPictureAt === null || state.playerSession !== state.session.number) return base;
   return base + Math.floor((nowMs - state.firstPictureAt) / 1000);
 }
 

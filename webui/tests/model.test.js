@@ -24,6 +24,7 @@ test('TST-414 ARCHIVE position advances from the first picture, distance stays -
   model.update({
     // first session_state playing at a − 1.5 s: playingSince is not used for the position
     session: session({ start: t - 90, startTime: t - 90, playingSince: t - 2 }),
+    playerSession: 1,   // the player of session 1 showed its first picture at a
     firstPictureAt: a,
   });
   const expected = [[0, '11:05:10'], [1000, '11:05:11'], [10000, '11:05:20']];
@@ -40,6 +41,25 @@ test('TST-414 before the first picture the position is startTime', () => {
   const model = createModel();
   model.update({ session: session({ start: T0 - 90, startTime: T0 - 90 }), firstPictureAt: null });
   assert.equal(playbackPosition(model.state, (T0 + 5) * 1000), T0 - 90);
+});
+
+test('TST-414 a new archive session shows startTime until the first picture of its own player', () => {
+  // Seek from a playing session 4 (its player showed the first picture 25 s ago) to T: session 5 is
+  // starting while the player of session 4 still plays (REQ-25), so firstPictureAt is not yet the one
+  // of the current session (Section 4.4.2) and the position is T, not T + 25.
+  const T = T0 - 30;
+  const now = (T0 + 25) * 1000;
+  const model = createModel();
+  model.update({
+    session: session({ number: 5, state: 'starting', start: T, startTime: null }),
+    playerSession: 4,
+    firstPictureAt: T0 * 1000,
+  });
+  assert.equal(playbackPosition(model.state, now), T);
+  assert.equal(formatDistance(distanceFromLive(model.state, now)), '−00:55');
+  // The first picture of the player of session 5 at now: from there the position advances.
+  model.update({ session: session({ number: 5, start: T, startTime: T }), playerSession: 5, firstPictureAt: now });
+  assert.equal(playbackPosition(model.state, now + 3000), T + 3);
 });
 
 test('TST-414 LIVE mode shows LIVE and the position is now', () => {
