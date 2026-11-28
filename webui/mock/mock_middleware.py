@@ -227,6 +227,7 @@ class Mock:
         self.stream_info_sent = False
         self.pmt_parsed = False      # flags of the current attempt (Section 4.2.3)
         self.protection = 'unknown'  # 'unknown', 'clear' or 'protected'
+        self.key_accepted = False    # key_result = accepted
 
     # ------------------------------------------------------------------ clients and events
     def add_client(self, client):
@@ -310,10 +311,11 @@ class Mock:
         ok(dict(self.session) if self.session else {'state': 'idle'})
 
     def cmd_stop(self, params, ok, error):
-        ok({})
+        # T-02; Section 3.6.2 of 1.3 (#27): session_state stopped before the response, as for play (T-01).
         if self.session and self.session['state'] in self.ACTIVE + ('key_required', 'error'):
             self.release()
             self.set_state('stopped')
+        ok({})
 
     def cmd_play(self, params, ok, error):
         service_id, start = params.get('service_id'), params.get('start')
@@ -350,9 +352,9 @@ class Mock:
             return                                           # T-25: used at the next PMT of the service
         if s['state'] == 'key_required':
             restart = True                                   # T-24
-        else:                                                # T-33: the previous key is already applied
+        else:                                                # T-33 with the guard of 1.3 (#22); otherwise T-25
             restart = (s['state'] in ('starting', 'waiting_stream', 'validating_key')
-                       and self.pmt_parsed and self.protection != 'clear')
+                       and self.pmt_parsed and self.protection != 'clear' and not self.key_accepted)
         if restart:
             self.release()
             s.update({'start_time': None, 'playing_since': None, 'protected': None})
@@ -365,6 +367,7 @@ class Mock:
         g = self.generation
         self.pmt_parsed = False
         self.protection = 'unknown'
+        self.key_accepted = False
         self.set_state('starting')
         self.later(START_DELAY_S, g, self.on_start_ok)
 
@@ -413,6 +416,7 @@ class Mock:
         service_id = self.session['service_id']
         if self.keys[service_id] == CORRECT_KEYS[service_id]:   # T-16
             log(f'key accepted service={service_id} key={masked(self.keys[service_id])}')
+            self.key_accepted = True
             self.start_stream(g)
         else:                                                    # T-17
             log(f'key rejected service={service_id} key={masked(self.keys[service_id])}')
