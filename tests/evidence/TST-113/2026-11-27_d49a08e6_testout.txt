@@ -1,0 +1,13 @@
+TESTOUT of TST-113 (Section 5.1.6)
+Command: build/bin/dtvcore_tests --gtest_filter='Tst113.*' --gtest_color=no
+Commit: d49a08e6 (main)  Date: 2026-11-27  Environment: Ubuntu 24.04.4 LTS, GCC 13.3.0, GoogleTest 1.14.0, FFmpeg 6.1.1
+
+Test functions of TST-113:
+[       OK ] Tst113.ReferenceAesKnownAnswers (0 ms)
+[       OK ] Tst113.ReferenceD04Packet (0 ms)
+[       OK ] Tst113.FakeDemuxDescrambling (0 ms)
+[       OK ] Tst113.ContentMissingFails (0 ms)
+[       OK ] Tst113.KeyAcceptedAfterThreePesStarts (0 ms)
+[       OK ] Tst113.ContentSvc3WithK3 (73 ms)
+[==========] 6 tests from 1 test suite ran. (73 ms total)
+[  PASSED  ] 6 tests.
