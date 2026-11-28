@@ -105,6 +105,7 @@ void PsiParser::on_section(std::uint64_t generation, Table table, const std::vec
 void PsiParser::handle_pat(const std::vector<std::uint8_t>& section) {
     const PatResult pat = parse_pat(section.data(), section.size());
     if (pat.error != PsiError::None) {
+        ++discarded_sections_;
         log(pal::LogLevel::Warn, std::string("discarded PAT section: ") + to_string(pat.error));
         return;
     }
@@ -124,6 +125,7 @@ void PsiParser::handle_pat(const std::vector<std::uint8_t>& section) {
 void PsiParser::handle_pmt(const std::vector<std::uint8_t>& section) {
     const PmtResult pmt = parse_pmt(section.data(), section.size());
     if (pmt.error != PsiError::None) {
+        ++discarded_sections_;
         log(pal::LogLevel::Warn, std::string("discarded PMT section: ") + to_string(pmt.error));
         return;
     }
