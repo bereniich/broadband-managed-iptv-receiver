@@ -3762,10 +3762,10 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 64 | 1 | 35 | 0 |
+| Unit | 100 | 63 | 2 | 35 | 0 |
 | Integration | 22 | 1 | 0 | 21 | 0 |
 | Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 65 | 1 | 102 | 0 |
+| **Total** | 168 | 64 | 2 | 102 | 0 |
 
 Requirements verified: 4 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
@@ -3778,7 +3778,7 @@ The first column is printed in bold so that it is not taken for the definition o
 | Test | Level | Status | Date | Commit | Actual result | Evidence |
 |---|---|---|---|---|---|---|
 | **TST-101** | Unit | passed | 2026-11-27 | d49a08e6 | 7 test functions passed: helper CRC-32 of `123456789` = `0x0376E6E7`, helper sections equal the PAT / PMT of FFmpeg; (a) program 1 → PMT PID 4096; (b) program 0 (PID 16) skipped, program 2 → PMT PID 768; PAT of FFmpeg → program 1, PMT PID 4096 | `tests/evidence/TST-101/2026-11-27_d49a08e6_testout.txt` |
-| **TST-102** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: through the PAT filter, changed CRC byte and `section_length` larger than the data → no `EV-PAT`, one warning each (2); the `table_id 0x02` section is not delivered by the PAT filter (`table_id 0x00`, Section 3.9.2), so it gives neither an event nor a warning (deviation from the text of TST-102, issue #23); then the valid section → `EV-PAT` with PMT PID 4096; `parse_pat` rejects all three variants | `tests/evidence/TST-102/2026-11-27_d49a08e6_testout.txt` |
+| **TST-102** | Unit | failed | 2026-11-27 | d49a08e6 | Failed, issue #23: 5 test functions passed: through the PAT filter, changed CRC byte and `section_length` larger than the data → no `EV-PAT`, one warning each (2); the `table_id 0x02` section is not delivered by the PAT filter (`table_id 0x00`, Section 3.9.2), so it gives neither an event nor a warning (the expected "one warning per section" of TST-102 is not observed for it, issue #23); then the valid section → `EV-PAT` with PMT PID 4096; `parse_pat` rejects all three variants | `tests/evidence/TST-102/2026-11-27_d49a08e6_testout.txt` |
 | **TST-103** | Unit | passed | 2026-11-27 | d49a08e6 | 4 test functions passed: (a) PCR 256, video 256 / `0x1B`, audio 257 / `0x0F`; (b) program 2, PCR 1025, video 1025, audio 1026; (c) video 301, audio 300, stream `0x06` with descriptor ignored; PMT of FFmpeg → 256 / 257 | `tests/evidence/TST-103/2026-11-27_d49a08e6_testout.txt` |
 | **TST-104** | Unit | passed | 2026-11-27 | d49a08e6 | 5 test functions passed: (d) only `0x0F` → `EV-PMT-NOVIDEO`; (e) only `0x1B` → video 256, no audio, stream accepted; (a) with one CRC byte changed → discarded, no event, one warning | `tests/evidence/TST-104/2026-11-27_d49a08e6_testout.txt` |
 | **TST-105** | Unit | passed | 2026-11-27 | d49a08e6 | 13 test functions passed: filter order section PID 0 `table_id 0x00`, section on the PMT PID `table_id 0x02`, TS filters on exactly PID 0, the PMT PID, video and audio: `svc-1.ts` 4096 / 256 / 257, `test/svc-2.altpid.ts` 768 / 1025 / 1026; PAT / PMT repetitions cause no further filter call | `tests/evidence/TST-105/2026-11-27_d49a08e6_testout.txt` |
