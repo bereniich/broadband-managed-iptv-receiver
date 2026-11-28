@@ -118,6 +118,8 @@ TEST(Tst301, FfprobePropertiesOfEveryContentFile) {
 
         const double duration = std::stod(j.at("format").at("duration").get<std::string>());
         const double bitrate = std::stod(j.at("format").at("bit_rate").get<std::string>());
+        std::printf("TST-301 measured: %s duration %.3f s (600 +/- 0.1), bitrate %.0f bit/s (3500000 +/- 1 %%)\n",
+                    e.file, duration, bitrate);
         EXPECT_NEAR(duration, 600.0, 0.1);
         EXPECT_NEAR(bitrate, kMuxRate, kMuxRate * 0.01);
     }
@@ -243,6 +245,8 @@ TEST(Tst302, PsiPeriodRandomAccessAndClosedGop) {
         ASSERT_EQ(r.video_pid, 256);
         EXPECT_GT(r.pat_count, 6000);  // at least 10 per second over 600 s
         EXPECT_GT(r.pmt_count, 6000);
+        std::printf("TST-302 measured: %s largest PAT distance %.4f s, PMT distance %.4f s (limit 0.1 s)\n",
+                    file.c_str(), r.max_pat_gap_s, r.max_pmt_gap_s);
         EXPECT_LE(r.max_pat_gap_s, 0.1);
         EXPECT_LE(r.max_pmt_gap_s, 0.1);
         EXPECT_EQ(r.idr_pes_without_rai, 0);

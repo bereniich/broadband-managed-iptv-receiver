@@ -50,6 +50,9 @@ public:
     // S7: opens and starts the PMT section filter (table_id 0x02). False if it cannot be opened or
     // started, or if no attempt is running or its PMT filter is already open.
     bool start_pmt(std::uint16_t pmt_pid);
+    // Sections discarded because of a CRC, table_id or length error, since the process started
+    // (statistics of Section 4.8.1).
+    std::uint64_t discarded_sections() const { return discarded_sections_; }
 
     // RELEASE: closes the section filters of the attempt; its queued sections are discarded.
     void close();
@@ -71,6 +74,7 @@ private:
     std::uint64_t session_ = 0;
     std::uint64_t generation_ = 0;
     Events events_;
+    std::uint64_t discarded_sections_ = 0;
     pal::IDemux::FilterId pat_filter_ = 0;
     pal::IDemux::FilterId pmt_filter_ = 0;
     std::uint16_t pmt_pid_ = 0;

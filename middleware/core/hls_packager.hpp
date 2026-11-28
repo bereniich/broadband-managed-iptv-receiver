@@ -54,6 +54,9 @@ public:
     void set_stream(const StreamDescription& stream);
     // S11: one TS packet of a TS filter (PID 0, the PMT PID, the video or the audio PID).
     void feed(const std::uint8_t* packet);
+    // Segments discarded (B5: no key-frame start within 2 s, loop boundary before the first PCR),
+    // since the process started (statistics of Section 4.8.1).
+    std::uint64_t discarded_segments() const { return discarded_segments_; }
     // T-16, T-19: on -> the held segments are written in order (REQ-52).
     void set_write_enabled(bool on);
     // RELEASE: held data discarded, IHlsStore::close_session.
@@ -83,6 +86,8 @@ private:
     pal::ILogger& logger_;
 
     bool opened_ = false;
+
+    std::uint64_t discarded_segments_ = 0;
     bool failed_ = false;
     std::uint64_t session_ = 0;
     std::uint64_t generation_ = 0;

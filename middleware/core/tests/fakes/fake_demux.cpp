@@ -27,7 +27,8 @@ std::string type_name(pal::FilterType type) {
 pal::IDemux::FilterId FakeDemux::open_filter(const pal::FilterConfig& config, DataCallback on_data) {
     std::string entry = "open_filter " + type_name(config.type) + " pid=" + std::to_string(config.pid);
     if (config.type == pal::FilterType::Section) entry += " table_id=" + std::to_string(config.table_id);
-    if (fail_open_ || config.pid > kMaxPid || !on_data) {
+    ++opens_;
+    if (fail_open_ || (fail_open_from_ != 0 && opens_ >= fail_open_from_) || config.pid > kMaxPid || !on_data) {
         record(log_, entry + " -> 0");
         return 0;
     }

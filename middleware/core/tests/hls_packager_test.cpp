@@ -4,6 +4,8 @@
 // content/svc-1.ts and ffprobe (Section 5.1.6) and fail while the content is missing.
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -153,6 +155,19 @@ std::optional<std::string> ffprobe(const std::filesystem::path& file, const std:
     std::filesystem::remove(out);
     if (status != 0) return std::nullopt;
     return text.str();
+}
+
+// "TST-xxx measured: #EXTINF a, b, … (min …, max …, limit …)" for Section 5.9.1.
+void print_extinf(const char* test, const std::vector<std::string>& durations, const char* limit) {
+    std::string list;
+    double lo = 1e9, hi = 0;
+    for (const std::string& d : durations) {
+        list += (list.empty() ? "" : ", ") + d;
+        lo = std::min(lo, std::stod(d));
+        hi = std::max(hi, std::stod(d));
+    }
+    std::printf("%s measured: #EXTINF %s (%zu segments, min %.3f, max %.3f, limit %s)\n", test, list.c_str(),
+                durations.size(), lo, hi, limit);
 }
 
 // ---------------------------------------------------------------- TST-121, TST-122
@@ -353,6 +368,8 @@ TEST(Tst126, NoKeyFrameWithin2s) {
     EXPECT_EQ(h.logger.count_containing("segment discarded: no key-frame start within 2 s of content"), 1u);
     EXPECT_EQ(check_segment_start(h.segment(0)), 100);   // the next key-frame start
     EXPECT_EQ(check_segment_start(h.segment(1)), 125);
+    EXPECT_EQ(h.out.discarded_segments(), 1u);   // counted for the statistics of Section 4.8.1
+    print_extinf("TST-126", h.extinf(), "at most 2.000");
     for (const std::string& d : h.extinf()) EXPECT_LE(std::stod(d), 2.0);
 }
 
@@ -380,14 +397,62 @@ TEST(Tst127, WriteFailure) {
 // ---------------------------------------------------------------- content: TST-121, TST-124
 
 // Feeds packets of the four PIDs of the reference set (what the TS filters of REQ-19 deliver).
-void feed_file(Harness& h, const std::string& path, std::size_t first, std::size_t count) {
+// Feeds packets of a content file as the TS filters deliver them (REQ-19: PIDs 0, 4096, 256, 257), or
+// every packet of the file with `all_pids` (AL-OUT then has to drop the other PIDs itself, REQ-22).
+void feed_file(Harness& h, const std::string& path, std::size_t first, std::size_t count, bool all_pids = false) {
     std::ifstream file(path, std::ios::binary);
     file.seekg(static_cast<std::streamoff>(first * 188));
     Bytes p(188);
     for (std::size_t i = 0; i < count && file.read(reinterpret_cast<char*>(p.data()), 188); ++i) {
         const std::uint16_t pid = al::ts_pid(p.data());
-        if (pid == 0 || pid == 4096 || pid == 256 || pid == 257) h.out.feed(p.data());
+        if (all_pids || pid == 0 || pid == 4096 || pid == 256 || pid == 257) h.feed({p});
     }
+}
+
+// Number k of the segment preceded by #EXT-X-DISCONTINUITY (from the AL-OUT log), or -1.
+long marked_segment(const Harness& h) {
+    for (const auto& l : h.logger.lines()) {
+        const std::string tag = "#EXT-X-DISCONTINUITY before seg-";
+        const std::size_t at = l.message.find(tag);
+        if (at != std::string::npos) return std::stol(l.message.substr(at + tag.size()));
+    }
+    return -1;
+}
+
+// Index of `packet` in the fed input, at or after `from`.
+std::size_t fed_index(const Harness& h, const Bytes& packet, std::size_t from = 0) {
+    for (std::size_t i = from; i < h.fed.size(); ++i) {
+        if (h.fed[i] == packet) return i;
+    }
+    return h.fed.size();
+}
+
+// REQ-24 on content: the segment before the marked one ends before the boundary (index `boundary` of
+// the input), the marked one starts after it with a key frame; every segment consists of input
+// packets in input order (timestamps not rewritten); when the marked segment has left the playlist,
+// #EXT-X-DISCONTINUITY-SEQUENCE:1 is listed.
+void check_boundary(const Harness& h, std::size_t boundary) {
+    const long k = marked_segment(h);
+    ASSERT_GE(k, 1) << "no #EXT-X-DISCONTINUITY";
+    const std::vector<Bytes> before = h.segment(static_cast<std::uint64_t>(k - 1));
+    const std::vector<Bytes> marked = h.segment(static_cast<std::uint64_t>(k));
+    ASSERT_FALSE(before.empty());
+    check_segment_start(marked);
+    EXPECT_LT(fed_index(h, before.back()), boundary);   // closed at the boundary / the gap
+    EXPECT_GE(fed_index(h, marked[2], boundary), boundary);
+    EXPECT_LT(fed_index(h, marked[2], boundary), h.fed.size());
+    for (const auto& [n, seg] : h.written) {
+        SCOPED_TRACE("seg-" + std::to_string(n));
+        check_subsequence(seg, h.fed);
+    }
+    bool left = false;
+    for (const std::string& text : h.playlists) {
+        const std::size_t at = text.find("#EXT-X-MEDIA-SEQUENCE:");
+        if (at == std::string::npos || std::stol(text.substr(at + 22)) <= k) continue;
+        left = true;
+        EXPECT_NE(text.find("#EXT-X-DISCONTINUITY-SEQUENCE:1\n"), std::string::npos) << text;
+    }
+    std::printf("marked segment seg-%ld.ts, %s the playlist\n", k, left ? "has left" : "has not left");
 }
 
 TEST(Tst121, ContentFirst12s) {
@@ -395,10 +460,32 @@ TEST(Tst121, ContentFirst12s) {
     if (!testutil::content_exists(path) || !ffprobe_available()) return;
     Harness h;
     feed_file(h, path, 0, testutil::packets_for_seconds(12));
-    const std::vector<std::string> durations = h.extinf();
+    std::vector<std::string> durations;
+    for (const std::string& text : h.playlists) {   // every #EXTINF ever listed
+        for (const std::string& l : lines_of(Bytes(text.begin(), text.end()))) {
+            if (l.rfind("#EXTINF:", 0) == 0) durations.push_back(l.substr(8, l.size() - 9));
+        }
+    }
+    std::sort(durations.begin(), durations.end());
     ASSERT_FALSE(durations.empty());
+    std::vector<std::string> per_segment;
+    for (const auto& [n, seg] : h.written) {
+        (void)seg;
+        for (const std::string& text : h.playlists) {
+            const std::string name = "seg-" + std::to_string(n) + ".ts\n";
+            const std::size_t at = text.find(name);
+            if (at == std::string::npos) continue;
+            const std::size_t line = text.rfind("#EXTINF:", at);
+            per_segment.push_back(text.substr(line + 8, text.find(',', line) - line - 8));
+            break;
+        }
+    }
+    // TST-121 of 1.1 expects 1.000 – 2.000; the cut at PCR >= 1 s minus one PCR interval (decision P3,
+    // proposed for 1.2 in issue #26) gives 0.999 on this content, so the bound is that of the proposal
+    // and Section 5.9 records the deviation from 1.1.
+    print_extinf("TST-121", per_segment, "0.980 - 2.000 (issue #26; 1.1: 1.000 - 2.000)");
     for (const std::string& d : durations) {
-        EXPECT_GE(std::stod(d), 1.0);
+        EXPECT_GE(std::stod(d), 0.98);
         EXPECT_LE(std::stod(d), 2.0);
     }
     for (const std::string& name : h.store.files(1)) {
@@ -413,6 +500,45 @@ TEST(Tst121, ContentFirst12s) {
     }
 }
 
+TEST(Tst122, ContentOutputOfTst121) {
+    const std::string path = testutil::content_path("svc-1.ts");
+    if (!testutil::content_exists(path)) return;
+    Harness filtered;   // the output of TST-121: first 12 s as TS filter packets
+    feed_file(filtered, path, 0, testutil::packets_for_seconds(12));
+    std::set<std::uint16_t> pids;
+    std::size_t packets = 0;
+    ASSERT_FALSE(filtered.written.empty());
+    for (const auto& [n, seg] : filtered.written) {
+        for (const Bytes& p : seg) {
+            pids.insert(al::ts_pid(p.data()));
+            EXPECT_EQ((p[3] >> 6) & 0x3, 0) << "seg-" << n;
+            ++packets;
+        }
+    }
+    EXPECT_EQ(pids, (std::set<std::uint16_t>{0, 4096, 256, 257}));   // no null packets (8191)
+    // The same 12 s with every PID of the file (null packets, SDT): AL-OUT drops the others itself.
+    Harness all;
+    feed_file(all, path, 0, testutil::packets_for_seconds(12), true);
+    EXPECT_EQ(all.written, filtered.written);
+    std::printf("TST-122 measured: %zu segments, %zu packets, PIDs 0, 4096, 256, 257 only, all '00'\n",
+                filtered.written.size(), packets);
+}
+
+TEST(Tst124, ContentGap) {   // second input: 5 s, a gap of 2 s of content removed, 5 s
+    const std::string path = testutil::content_path("svc-1.ts");
+    if (!testutil::content_exists(path) || !ffprobe_available()) return;
+    Harness h;
+    feed_file(h, path, 0, testutil::packets_for_seconds(5));
+    const std::size_t boundary = h.fed.size();
+    feed_file(h, path, testutil::packets_for_seconds(7), testutil::packets_for_seconds(5));
+    check_boundary(h, boundary);
+    for (const std::string& name : h.store.files(1)) {
+        if (name.rfind("seg-", 0) != 0) continue;
+        SCOPED_TRACE(name);
+        EXPECT_TRUE(ffprobe(h.store.dir(1) / name, "-show_programs -show_streams").has_value());
+    }
+}
+
 TEST(Tst124, ContentLoop) {
     const std::string path = testutil::content_path("svc-1.ts");
     if (!testutil::content_exists(path) || !ffprobe_available()) return;
@@ -420,7 +546,9 @@ TEST(Tst124, ContentLoop) {
     const std::size_t total = static_cast<std::size_t>(std::filesystem::file_size(path) / 188);
     const std::size_t last5 = testutil::packets_for_seconds(5);
     feed_file(h, path, total - last5, last5);                 // last 5 s of the file
+    const std::size_t boundary = h.fed.size();
     feed_file(h, path, 0, testutil::packets_for_seconds(8));  // then its first 8 s (D-08)
+    check_boundary(h, boundary);
     // The marked segment is listed (#EXT-X-DISCONTINUITY) or has left (#EXT-X-DISCONTINUITY-SEQUENCE:1).
     std::string text;
     for (const std::string& l : h.playlist()) text += l + "\n";

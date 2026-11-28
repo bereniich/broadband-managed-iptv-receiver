@@ -2,6 +2,7 @@
 // part of TST-226 (the platform part follows with create_platform).
 #include <gtest/gtest.h>
 
+#include <cstdio>
 #include <atomic>
 #include <cstdlib>
 #include <ctime>
@@ -80,6 +81,8 @@ TEST(Tst225, TimersFireOnceNotEarlyAtMost20msLateAndTheCancelledOneNever) {
         const Fired& f = fired[delay];
         ASSERT_EQ(f.count.load(), 1) << delay << " ms";
         const double elapsed = ms_between(started[delay], f.at);
+        std::printf("TST-225 measured: %d ms timer fired after %.2f ms (late by %.2f ms, limit 0 - 20 ms)\n", delay,
+                    elapsed, elapsed - delay);
         EXPECT_GE(elapsed, delay) << delay << " ms timer fired early";
         EXPECT_LE(elapsed, delay + 20) << delay << " ms timer fired late";
         EXPECT_NE(f.thread, std::this_thread::get_id());
