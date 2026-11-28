@@ -13,6 +13,8 @@ constexpr const char* kInvalidStream = "INVALID_STREAM";      // Section 3.10
 constexpr const char* kReceiverError = "RECEIVER_ERROR";      // Section 3.10
 constexpr const char* kNoDataAtStart = "no_data_at_start";    // Section 3.6.3
 constexpr const char* kDataLost = "data_lost";                // Section 3.6.3
+constexpr const char* kNoKey = "no_key";                      // Section 3.6.3
+constexpr const char* kKeyRejected = "key_rejected";          // Section 3.6.3
 
 std::string start_text(const StartPoint& start) { return start.live() ? "live" : std::to_string(*start.time); }
 
@@ -232,11 +234,33 @@ void SessionController::on_start(std::uint64_t g, const HeadendError& error, con
     start_timer(Timer::Keepalive, config_.keepalive_interval_s);
     if (!s_->locked) start_timer(Timer::NoData, config_.no_data_timeout_s);
 
-    // Rule 3: the deferred part of the recorded data-path flags; only the resulting state is sent.
-    if (s_->protection == Decision::Clear) s_->is_protected = false;   // rest of T-19 already done
-    if (s_->protection == Decision::Clear && s_->first_segment_listed) {
-        s_->playing_since = clock_.unix_time_s();   // as T-18
-        set_state(State::Playing);
+    // Rule 3: the deferred part of the recorded data-path flags, in the order of T-06; only the
+    // resulting state is sent.
+    if (s_->protection == Decision::Clear) {
+        s_->is_protected = false;   // the rest of T-19 was already done
+        if (s_->first_segment_listed) {
+            s_->playing_since = clock_.unix_time_s();   // as T-18
+            set_state(State::Playing);
+            return;
+        }
+    } else if (s_->protection == Decision::Protected) {
+        s_->is_protected = true;
+        if (!s_->key_set) {
+            release();   // as T-14 (REQ-45), with POST /stop for the session id just stored
+            set_state(State::KeyRequired, kNoKey);
+            return;
+        }
+        // As T-15; then a recorded rejection as T-17, or an accepted key (T-16 already done).
+        if (s_->key_result == KeyResult::Rejected) {
+            reject_key();
+            return;
+        }
+        if (s_->key_result == KeyResult::Accepted && s_->first_segment_listed) {
+            s_->playing_since = clock_.unix_time_s();   // as T-18
+            set_state(State::Playing);
+            return;
+        }
+        set_state(State::ValidatingKey);
         return;
     }
     set_state(State::WaitingStream);
@@ -315,8 +339,8 @@ void SessionController::on_pmt(std::uint64_t g, const StreamDescription& stream)
     output_.set_stream(stream);
     KeyManager::Events dsc;
     dsc.on_video1 = [this, g](al::Protection p) { on_video1(g, p); };
-    dsc.on_key_ok = [this] { not_handled("EV-KEY-OK"); };     // T-16, step 11
-    dsc.on_key_bad = [this] { not_handled("EV-KEY-BAD"); };   // T-17, step 11
+    dsc.on_key_ok = [this, g] { on_key_ok(g); };
+    dsc.on_key_bad = [this, g] { on_key_bad(g); };
     dsc.on_packet = [this, g](const std::uint8_t* packet, bool) {
         if (current(g)) output_.feed(packet);   // S11
     };
@@ -326,13 +350,26 @@ void SessionController::on_pmt(std::uint64_t g, const StreamDescription& stream)
     }
 }
 
-// ---------------------------------------------------------------- T-19, T-18
+// ---------------------------------------------------------------- T-14, T-15, T-19, T-16, T-17, T-18
 
 void SessionController::on_video1(std::uint64_t g, al::Protection protection) {
     if (!current(g) || !in({State::Starting, State::WaitingStream})) return;
     if (protection != al::Protection::Clear) {
         s_->protection = Decision::Protected;
-        not_handled("EV-VIDEO1 protected");   // T-14, T-15, step 11
+        s_->key_set = protection == al::Protection::ProtectedKey;
+        if (s_->state == State::Starting) {
+            // Rule 3: only recorded, applied by T-06. Without a key the decisions are made, so the
+            // stream deadline is cancelled; with a key it keeps running until the key decision.
+            if (!s_->key_set) cancel_timer(Timer::Deadline);
+            return;
+        }
+        s_->is_protected = true;
+        if (!s_->key_set) {
+            release();   // T-14 (REQ-45): no segment of the session is written
+            set_state(State::KeyRequired, kNoKey);
+            return;
+        }
+        set_state(State::ValidatingKey);   // T-15: AL-DSC checks the PES starts (S10)
         return;
     }
     // T-19: data-path actions now (also in starting, rule 3); protected = false is deferred in starting.
@@ -353,7 +390,41 @@ void SessionController::on_first_segment(std::uint64_t g) {
         set_state(State::Playing);
         return;
     }
-    not_handled("EV-SEG1");   // validating_key: step 11
+    if (s_->state == State::ValidatingKey && s_->key_result == KeyResult::Accepted) {
+        s_->playing_since = clock_.unix_time_s();   // T-18 (S12)
+        set_state(State::Playing);
+        return;
+    }
+    not_handled("EV-SEG1");
+}
+
+void SessionController::on_key_ok(std::uint64_t g) {
+    if (!current(g) || !in({State::Starting, State::ValidatingKey})) return;
+    // T-16 (in starting the same data-path actions, rule 3): held segments are written (REQ-52).
+    cancel_timer(Timer::Deadline);
+    s_->key_result = KeyResult::Accepted;
+    output_.set_write_enabled(true);
+}
+
+void SessionController::on_key_bad(std::uint64_t g) {
+    if (!current(g)) return;
+    if (s_->state == State::Starting) {
+        // Rule 3: recorded; discarding the key and RELEASE follow at T-06. The decision is made, so a
+        // late /start response cannot turn it into INVALID_STREAM.
+        s_->key_result = KeyResult::Rejected;
+        cancel_timer(Timer::Deadline);
+        return;
+    }
+    if (s_->state == State::ValidatingKey) reject_key();   // T-17
+}
+
+void SessionController::reject_key() {
+    // T-17 (REQ-53): the key of the service is discarded; RELEASE includes clear_keys, the held output
+    // is discarded and POST /stop is sent.
+    s_->key_result = KeyResult::Rejected;
+    keys_.discard(s_->service_id);
+    release();
+    set_state(State::KeyRequired, kKeyRejected);
 }
 
 // ---------------------------------------------------------------- timers, T-26, T-27

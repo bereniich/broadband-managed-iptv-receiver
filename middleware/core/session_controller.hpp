@@ -5,7 +5,8 @@
 // T-27), RELEASE (rule 4) and the data path before the /start response (rule 3) for a clear stream;
 // step 9a the errors of a start (T-04, T-05, T-07, T-08, T-13, T-21, T-30 and a demux filter that
 // cannot be opened, issue #24); step 9b no signal and the loss of the head-end (T-10, T-20, T-22,
-// T-23, T-28, T-29, T-32); step 9c the statistics line every 10 s (Section 4.8.1, principle 4).
+// T-23, T-28, T-29, T-32); step 9c the statistics line every 10 s (Section 4.8.1, principle 4); step 11a
+// the protected stream (T-14 – T-18, rule 3 for the protection and key decisions applied by T-06).
 // Every callback carries the generation of its attempt; tasks of another generation are discarded
 // before the table is consulted (rule 2). Runs on the AL worker.
 #pragma once
@@ -102,6 +103,7 @@ public:
 
 private:
     enum class Decision { Unknown, Clear, Protected };   // protection recorded by the data path
+    enum class KeyResult { Pending, Accepted, Rejected };   // key_result of Section 4.2.3
     enum class Timer { Keepalive, NoData, Deadline, Stats };
 
     struct Session {
@@ -123,6 +125,8 @@ private:
         bool locked = false;
         std::int64_t locked_ms = 0;
         Decision protection = Decision::Unknown;
+        bool key_set = false;   // protected-key: a key was set on the descrambler at T-12 (EV-VIDEO1)
+        KeyResult key_result = KeyResult::Pending;
         bool first_segment_listed = false;
         std::optional<std::int64_t> playing_since;
         int keepalive_failures = 0;
@@ -142,6 +146,9 @@ private:
     void on_pmt_novideo(std::uint64_t generation);              // T-13
     void on_output_error(std::uint64_t generation);             // T-30
     void on_video1(std::uint64_t generation, al::Protection protection);
+    void on_key_ok(std::uint64_t generation);                   // T-16
+    void on_key_bad(std::uint64_t generation);                  // T-17
+    void reject_key();                                          // T-17: discard, RELEASE, key_required
     void on_first_segment(std::uint64_t generation);
     void on_timer(std::uint64_t generation, Timer timer);
     void on_keepalive(std::uint64_t generation, const HeadendError& error);
