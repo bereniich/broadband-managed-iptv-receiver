@@ -65,6 +65,20 @@ The executables are built into `build/bin/`: `dtv-middleware`, `pal_dump`, `head
 
 The content files are generated on every machine and are not committed (about 262 MB each). Generate the clear content with `content/generate.sh` (WP-PAL) and package the protected content with `build/bin/package_ts --in <clear.ts> --out <enc.ts>`, which reads the key from standard input (WP-APP): `svc-3.enc.ts`, `svc-4.enc.ts` and `test/svc-4.altpid.enc.ts` (Section 4.7.3). `content/SHA256SUMS` identifies the reference set of the defense laptop (Section 5.2.1).
 
+Packaging, after `content/generate.sh` and the build; each command asks for the key of the service (K3 for `svc-3`, K4 for both `svc-4` files, Section 5.2.2) without echo:
+
+```bash
+build/bin/package_ts --in content/svc-3.ts --out content/svc-3.enc.ts
+```
+
+```bash
+build/bin/package_ts --in content/svc-4.ts --out content/svc-4.enc.ts
+```
+
+```bash
+build/bin/package_ts --in content/test/svc-4.altpid.ts --out content/test/svc-4.altpid.enc.ts
+```
+
 **Test data** — content files, checksums, the keys of the protected services, the incorrect key and the expected services and EPG — is documented in Section 5.2 of the specification (NFR-17); this file does not repeat it.
 
 ## Run
@@ -79,7 +93,7 @@ scripts/start.sh
 scripts/stop.sh
 ```
 
-`start.sh` starts the OTT MW server, the head-end and the middleware in this order, checks after each one that it has opened its TCP port (taken from the configuration files), checks `GET /` of the Web application and then opens Chromium in kiosk mode with its own profile (`~/snap/chromium/common/m15-kiosk`). If a component fails, it names it, stops the components it has started and exits with code 1. Options: `--diag` opens the page with `?diag=1` and writes the standard error of Chromium to `logs/chromium.log` (Section 5.1.8); `--test-set` starts the OTT MW server and the head-end with `server/config.test.json`. The standard output of the processes goes to `logs/<component>.out`, their log lines to `logs/<component>.log`. `stop.sh` stops Chromium (the kiosk profile only), the middleware (up to 3 s for its orderly stop with `POST /stop`), the head-end and the OTT MW server. In kiosk mode the terminal is reached with the Super key; `Alt+F4` closes the kiosk window.
+`start.sh` starts the OTT MW server, the head-end and the middleware in this order, checks after each one that it has opened its TCP port (taken from the configuration files), checks `GET /` of the Web application and then opens Chromium in kiosk mode with its own profile (`~/snap/chromium/common/m15-kiosk`). If a component fails, it names it, stops the components it has started and exits with code 1. Options: `--diag` opens the page with `?diag=1` and writes the standard error of Chromium to `logs/chromium.log` (Section 5.1.8); `--test-set` starts the OTT MW server and the head-end with `server/config.test.json`. The standard output of the processes goes to `logs/<component>.out`, their log lines to `logs/<component>.log`. `stop.sh` stops Chromium (the kiosk profile only), the middleware (up to 3 s for its orderly stop with `POST /stop`), the head-end and the OTT MW server. It finds `dtv-middleware`, `headend` and `mw_server` by their process name, so it also stops such processes that were started by hand or from another working copy of the repository. In kiosk mode the terminal is reached with the Super key; `Alt+F4` closes the kiosk window.
 
 The processes, each started from the repository root:
 

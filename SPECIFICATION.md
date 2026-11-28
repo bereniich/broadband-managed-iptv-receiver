@@ -3763,14 +3763,14 @@ This section records the **actual result** of every test of Sections 5.3 – 5.6
 
 | Level | Tests | passed | failed | not executed | not verifiable |
 |---|---|---|---|---|---|
-| Unit | 100 | 72 | 2 | 26 | 0 |
+| Unit | 100 | 75 | 2 | 23 | 0 |
 | Integration | 22 | 6 | 0 | 16 | 0 |
-| Acceptance | 46 | 0 | 0 | 46 | 0 |
-| **Total** | 168 | 78 | 2 | 88 | 0 |
+| Acceptance | 46 | 3 | 0 | 43 | 0 |
+| **Total** | 168 | 84 | 2 | 82 | 0 |
 
-Requirements verified: 4 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
+Requirements verified: 5 of 70 detailed functional requirements, 0 of 17 non-functional requirements.
 
-Verified requirements: REQ-26, REQ-32, REQ-57, REQ-60.
+Verified requirements: REQ-26, REQ-32, REQ-57, REQ-60, REQ-63.
 
 #### 5.9.3 Results
 
@@ -3846,9 +3846,9 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-301** | Unit | failed | 2026-11-26 | 2fda787a | Failed, issue #5: the 7 clear files have all properties of Section 5.2.1 (1 test function passed). For `svc-3.enc.ts` and `svc-4.enc.ts` the expected properties are not observed: D-04 encrypts PES headers and SPS, so `ffprobe` cannot read profile, resolution or duration (agreed change for 1.2); the test function checks their clear inputs instead | `tests/evidence/TST-301/2026-11-26_2fda787a_testout.txt` |
 | **TST-302** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: largest distance between PAT packets and between PMT packets 0.0907 s in each of the four files (limit 0.1 s); `random_access_indicator` on every IDR start; `ffprobe`: 15 000 frames per file with an I frame exactly every 25 frames, every GOP closed | `tests/evidence/TST-302/2026-11-27_d49a08e6_testout.txt`, `tests/evidence/TST-302/2026-11-27_d49a08e6_ffprobe.txt` |
 | **TST-303** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed (20 PNG frames written); inspection: all 20 frames (4 services × 0, 123, 299, 300, 599 s) show the service name, Program 1 up to 299 s and Program 2 from 300 s, and `00:00`, `02:03`, `04:59`, `05:00`, `09:59` | `tests/evidence/TST-303/2026-11-26_2fda787a_testout.txt`, `tests/evidence/TST-303/2026-11-26_2fda787a_photo.png` |
-| **TST-304** | Unit | not executed | — | — | — | — |
-| **TST-305** | Unit | not executed | — | — | — | — |
-| **TST-306** | Unit | not executed | — | — | — | — |
+| **TST-304** | Unit | passed | 2026-11-28 | a92fd0d0 | 3 test functions passed (Ubuntu 26.04.1 LTS, GCC 15.2.0, GoogleTest 1.17.0): helper CRC-32 of `123456789` = `0x0376E6E7`; round trip of synthetic packets; `content/svc-3.ts` with K3: output of the same size, packets of PIDs other than 256 / 257 unchanged, scrambling bits `'10'` exactly on the packets with a payload of ≥ 16 bytes, output decrypted with the test's own OpenSSL calls equal to the input byte for byte after resetting the scrambling bits | `tests/evidence/TST-304/2026-11-28_a92fd0d0_testout.txt` |
+| **TST-305** | Unit | passed | 2026-11-28 | a92fd0d0 | 1 test function passed (Ubuntu 26.04.1 LTS, GCC 15.2.0, GoogleTest 1.17.0): payload bytes 0 – 15 = `69c4e0d86a7b0430d8cdb78070b4c55a` (FIPS-197 C.1), the residual 8 bytes unchanged | `tests/evidence/TST-305/2026-11-28_a92fd0d0_testout.txt` |
+| **TST-306** | Unit | passed | 2026-11-28 | a92fd0d0 | 2 test functions passed (Ubuntu 26.04.1 LTS, GCC 15.2.0, GoogleTest 1.17.0): IN-12 (missing input, packet without sync byte, input without PAT, KF1, KF2) → exit code 1, a message, no output file; with K3 the key is not echoed and the log contains `3A7F…` and no full key | `tests/evidence/TST-306/2026-11-28_a92fd0d0_testout.txt` |
 | **TST-311** | Unit | passed | 2026-11-27 | d49a08e6 | 1 test function passed: for `T mod 600` = 0, 1, 299, 300 and 599 s, p − c = 0.0000, 0.0005, 0.0009, 0.0010 and 0.0011 s (limit 0 ≤ p − c < 0.04 s), at offsets that are multiples of 188 on a PCR packet of the PCR PID; cached PAT and PMT are the first of the file | `tests/evidence/TST-311/2026-11-27_d49a08e6_testout.txt` |
 | **TST-312** | Unit | passed | 2026-11-26 | 2fda787a | 1 test function passed: archive window boundaries of Section 4.7.4 as expected | `tests/evidence/TST-312/2026-11-26_2fda787a_testout.txt` |
 | **TST-313** | Unit | passed | 2026-11-26 | 2fda787a | 2 test functions passed: missing or invalid content files refused with a message naming service and file; `headend` exits with code 1 naming them (ER-38) | `tests/evidence/TST-313/2026-11-26_2fda787a_testout.txt` |
@@ -3872,7 +3872,7 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-411** | Unit | passed | 2026-11-26 | 3ca56b53 | 3 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-411/2026-11-26_3ca56b53_testout.txt` |
 | **TST-412** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-412/2026-11-26_3ca56b53_testout.txt` |
 | **TST-413** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-413/2026-11-26_3ca56b53_testout.txt` |
-| **TST-414** | Unit | passed | 2026-11-26 | 3ca56b53 | 6 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-414/2026-11-26_3ca56b53_testout.txt` |
+| **TST-414** | Unit | passed | 2026-11-28 | a92fd0d0 | 8 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04.1 LTS); since PR #37 and #43 also the tick of the position update at `firstPictureAt` + k · 1 s and `startTime` until the first picture of the player of the current session | `tests/evidence/TST-414/2026-11-28_a92fd0d0_testout.txt` |
 | **TST-415** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-415/2026-11-26_3ca56b53_testout.txt` |
 | **TST-416** | Unit | passed | 2026-11-26 | 3ca56b53 | 2 test functions passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-416/2026-11-26_3ca56b53_testout.txt` |
 | **TST-417** | Unit | passed | 2026-11-26 | 3ca56b53 | 1 test function passed, 0 failed (Node.js 22.22.1, Ubuntu 26.04) | `tests/evidence/TST-417/2026-11-26_3ca56b53_testout.txt` |
@@ -3915,9 +3915,9 @@ The first column is printed in bold so that it is not taken for the definition o
 | **TST-613** | Acceptance | not executed | — | — | — | — |
 | **TST-614** | Acceptance | not executed | — | — | — | — |
 | **TST-615** | Acceptance | not executed | — | — | — | — |
-| **TST-616** | Acceptance | not executed | — | — | — | — |
-| **TST-617** | Acceptance | not executed | — | — | — | — |
-| **TST-618** | Acceptance | not executed | — | — | — | — |
+| **TST-616** | Acceptance | passed | 2026-11-28 | e3a9a461 | I-3 on a development machine (Ubuntu 26.04.1, 3072×1920, not E3; `content/SHA256SUMS` not yet on `main`, so the check of PRE-1 could not be made), started with `scripts/start.sh --diag`, no key stored. 1: no picture of "Premium One"; the key dialog "Enter the decryption key" opened by itself (`key_required` `no_key`, `start` = T = 16:15:00). 2: `•` with `5/32`, then `4/32`; after `ESC` the message "Protected service – press K to enter the key". 3: `K` 41.9 s after `ESC`, K3: playback in ARCHIVE with the time code `05:01` (`T mod 600` = 300; + 1 s, issue #36, within ± 1 s), first picture 2.14 s after `ENTER`. After `K` the message stayed over the dialog (fixed in PR #43, not part of the expected result) | `tests/evidence/TST-616/2026-11-28_e3a9a461_log.txt`, `tests/evidence/TST-616/2026-11-28_e3a9a461_photo1_key_dialog.png` … `photo6_first_picture_0501.png` |
+| **TST-617** | Acceptance | passed | 2026-11-28 | e3a9a461 | I-3, same environment as TST-616, after TST-616 in the same session. 1: picture and sound without visible corruption for more than 4 min (across the loop boundary), time code running from the selected time; `I` → "Protected – key OK". 2: `↓`, `↑`: "Premium One" live without the key dialog. 3: `←`: ARCHIVE `16:02:52` (time code `02:53`) without the key dialog | `tests/evidence/TST-617/2026-11-28_e3a9a461_log.txt`, `tests/evidence/TST-617/2026-11-28_e3a9a461_note.txt`, `tests/evidence/TST-617/2026-11-28_e3a9a461_photo1_info_key_ok.png` … `photo3_rewind_no_dialog.png` |
+| **TST-618** | Acceptance | passed | 2026-11-28 | e3a9a461 | I-3, same environment as TST-616, fresh start, screen recorded. 1: KX → "Incorrect decryption key", `t_reject` = 88 ms from the first `Locked` of the attempt; no frame of "Premium One" (no segment and no DIAG `frame` of the session before K3; the recording shows only the dark dialog between the selection and K3). 2: K3 146 s later → time code `05:01` for T = 16:05:00 (+ 1 s, issue #36, within ± 1 s), no restart. 3: `4`, K3 → rejected for "Premium Two" (`t_reject` 87 ms). 4: K4 → "Premium Two" live. The recording (34 MB) is kept by the executing member, not committed | `tests/evidence/TST-618/2026-11-28_e3a9a461_log.txt`, `tests/evidence/TST-618/2026-11-28_e3a9a461_photo1_kx_incorrect.png` … `photo5_k4_svc4_live.png` |
 | **TST-619** | Acceptance | not executed | — | — | — | — |
 | **TST-620** | Acceptance | not executed | — | — | — | — |
 | **TST-621** | Acceptance | not executed | — | — | — | — |

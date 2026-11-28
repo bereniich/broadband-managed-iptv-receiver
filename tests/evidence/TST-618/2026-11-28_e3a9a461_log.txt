@@ -1,0 +1,113 @@
+LOG of TST-618 (Section 5.5.2; evidence type LOG, Section 5.1.6)
+Commit: e3a9a461 (main)  Date: 2026-11-28  Executed by: Smilja Krulj (I-3)
+Environment: development machine, not E3: Ubuntu 26.04.1 LTS, screen 3072x1920 (PRE-2 asks for 1920x1080), Chromium 158 snap,
+             system started with scripts/start.sh --diag (kiosk, page ?diag=1, logs/chromium.log); content/generate.sh of this
+             machine (FFmpeg 8.0.1), encrypted files from package_ts; content/SHA256SUMS not yet on main, so the check of PRE-1
+             could not be made. Keys appear only masked (3A7F…, 0011…, C04E…; NFR-08); the DIAG mark of a typed key character is "•".
+Steps: 16:13 - 16:18, after a fresh start, screen recorded 16:13:21 - 16:18:50: EPG, previous event of "Premium One", ENTER, KX; 146 s; K3; 4 ENTER, K3; K4.
+
+--- logs/middleware.log (play, set_key, session_state, tuner, PSI, protection, key decision, first segment) ---
+2026-11-28T16:13:10.247 INFO [AL-API] recv command id=4 name=play service_id=svc-1 start=live
+2026-11-28T16:13:10.248 INFO [AL-API] send event session_state session=1 state=starting reason=null start=live start_time=null
+2026-11-28T16:13:10.254 INFO [AL-HEC] start ok session=1 headend_session=hs-000001 ssrc=3068324875 start_time=1795878790
+2026-11-28T16:13:10.254 INFO [AL-API] send event session_state session=1 state=waiting_stream reason=null start=live start_time=1795878790
+2026-11-28T16:13:10.254 INFO [AL-SES] tuner Locked session=1 generation=1
+2026-11-28T16:13:10.254 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=1 generation=1
+2026-11-28T16:13:10.320 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=1 generation=1
+2026-11-28T16:13:10.323 INFO [AL-DSC] protection clear session=1 generation=1
+2026-11-28T16:13:12.252 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=1 generation=1
+2026-11-28T16:13:12.252 INFO [AL-API] send event session_state session=1 state=playing reason=null start=live start_time=1795878790
+2026-11-28T16:13:31.055 INFO [AL-API] recv command id=6 name=play service_id=svc-3 start=1795878300
+2026-11-28T16:13:31.056 INFO [AL-API] send event session_state session=1 state=stopped reason=null start=live start_time=1795878790
+2026-11-28T16:13:31.056 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795878300 start_time=null
+2026-11-28T16:13:31.059 INFO [AL-SES] tuner Locked session=2 generation=2
+2026-11-28T16:13:31.059 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=2
+2026-11-28T16:13:31.059 INFO [AL-HEC] start ok session=2 headend_session=hs-000002 ssrc=2193188795 start_time=1795878300
+2026-11-28T16:13:31.059 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:13:31.128 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=2
+2026-11-28T16:13:31.131 INFO [AL-DSC] protection protected key_set=false session=2 generation=2
+2026-11-28T16:13:31.131 INFO [AL-API] send event session_state session=2 state=key_required reason=no_key start=1795878300 start_time=1795878300
+2026-11-28T16:13:57.292 INFO [AL-API] recv command id=7 name=set_key key=0011… service_id=svc-3
+2026-11-28T16:13:57.292 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795878300 start_time=null
+2026-11-28T16:13:57.294 INFO [AL-SES] tuner Locked session=2 generation=3
+2026-11-28T16:13:57.294 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=3
+2026-11-28T16:13:57.294 INFO [AL-HEC] start ok session=2 headend_session=hs-000003 ssrc=690748026 start_time=1795878300
+2026-11-28T16:13:57.294 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:13:57.363 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=3
+2026-11-28T16:13:57.366 INFO [AL-DSC] protection protected key_set=true session=2 generation=3
+2026-11-28T16:13:57.366 INFO [AL-API] send event session_state session=2 state=validating_key reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:13:57.381 INFO [AL-DSC] key rejected service=svc-3 key=0011… session=2 generation=3
+2026-11-28T16:13:57.382 INFO [AL-API] send event session_state session=2 state=key_required reason=key_rejected start=1795878300 start_time=1795878300
+2026-11-28T16:16:23.407 INFO [AL-API] recv command id=8 name=set_key key=3A7F… service_id=svc-3
+2026-11-28T16:16:23.408 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795878300 start_time=null
+2026-11-28T16:16:23.409 INFO [AL-HEC] start ok session=2 headend_session=hs-000004 ssrc=1218606823 start_time=1795878300
+2026-11-28T16:16:23.409 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:16:23.409 INFO [AL-SES] tuner Locked session=2 generation=4
+2026-11-28T16:16:23.409 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=4
+2026-11-28T16:16:23.478 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=4
+2026-11-28T16:16:23.481 INFO [AL-DSC] protection protected key_set=true session=2 generation=4
+2026-11-28T16:16:23.481 INFO [AL-API] send event session_state session=2 state=validating_key reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:16:23.574 INFO [AL-DSC] key accepted service=svc-3 key=3A7F… session=2 generation=4
+2026-11-28T16:16:25.407 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=2 generation=4
+2026-11-28T16:16:25.408 INFO [AL-API] send event session_state session=2 state=playing reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:16:38.944 INFO [AL-API] recv command id=9 name=play service_id=svc-4 start=live
+2026-11-28T16:16:38.945 INFO [AL-API] send event session_state session=2 state=stopped reason=null start=1795878300 start_time=1795878300
+2026-11-28T16:16:38.946 INFO [AL-API] send event session_state session=3 state=starting reason=null start=live start_time=null
+2026-11-28T16:16:38.949 INFO [AL-SES] tuner Locked session=3 generation=5
+2026-11-28T16:16:38.949 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=3 generation=5
+2026-11-28T16:16:38.950 INFO [AL-HEC] start ok session=3 headend_session=hs-000005 ssrc=360880513 start_time=1795878998
+2026-11-28T16:16:38.950 INFO [AL-API] send event session_state session=3 state=waiting_stream reason=null start=live start_time=1795878998
+2026-11-28T16:16:39.025 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=3 generation=5
+2026-11-28T16:16:39.028 INFO [AL-DSC] protection protected key_set=false session=3 generation=5
+2026-11-28T16:16:39.030 INFO [AL-API] send event session_state session=3 state=key_required reason=no_key start=live start_time=1795878998
+2026-11-28T16:17:33.250 INFO [AL-API] recv command id=10 name=set_key key=3A7F… service_id=svc-4
+2026-11-28T16:17:33.251 INFO [AL-API] send event session_state session=3 state=starting reason=null start=live start_time=null
+2026-11-28T16:17:33.252 INFO [AL-HEC] start ok session=3 headend_session=hs-000006 ssrc=4253309287 start_time=1795879053
+2026-11-28T16:17:33.253 INFO [AL-API] send event session_state session=3 state=waiting_stream reason=null start=live start_time=1795879053
+2026-11-28T16:17:33.253 INFO [AL-SES] tuner Locked session=3 generation=6
+2026-11-28T16:17:33.253 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=3 generation=6
+2026-11-28T16:17:33.322 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=3 generation=6
+2026-11-28T16:17:33.325 INFO [AL-DSC] protection protected key_set=true session=3 generation=6
+2026-11-28T16:17:33.325 INFO [AL-API] send event session_state session=3 state=validating_key reason=null start=live start_time=1795879053
+2026-11-28T16:17:33.340 INFO [AL-DSC] key rejected service=svc-4 key=3A7F… session=3 generation=6
+2026-11-28T16:17:33.340 INFO [AL-API] send event session_state session=3 state=key_required reason=key_rejected start=live start_time=1795879053
+2026-11-28T16:18:32.772 INFO [AL-API] recv command id=12 name=set_key key=C04E… service_id=svc-4
+2026-11-28T16:18:32.773 INFO [AL-API] send event session_state session=3 state=starting reason=null start=live start_time=null
+2026-11-28T16:18:32.774 INFO [AL-HEC] start ok session=3 headend_session=hs-000007 ssrc=3276529190 start_time=1795879112
+2026-11-28T16:18:32.775 INFO [AL-API] send event session_state session=3 state=waiting_stream reason=null start=live start_time=1795879112
+2026-11-28T16:18:32.775 INFO [AL-SES] tuner Locked session=3 generation=7
+2026-11-28T16:18:32.775 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=3 generation=7
+2026-11-28T16:18:32.847 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=3 generation=7
+2026-11-28T16:18:32.850 INFO [AL-DSC] protection protected key_set=true session=3 generation=7
+2026-11-28T16:18:32.850 INFO [AL-API] send event session_state session=3 state=validating_key reason=null start=live start_time=1795879112
+2026-11-28T16:18:32.919 INFO [AL-DSC] key accepted service=svc-4 key=C04E… session=3 generation=7
+2026-11-28T16:18:34.772 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=3 generation=7
+2026-11-28T16:18:34.773 INFO [AL-API] send event session_state session=3 state=playing reason=null start=live start_time=1795879112
+
+--- logs/headend.log (start and stop of head-end sessions) ---
+2026-11-28T16:13:10.253 INFO [SRV-HEC] start session_id=hs-000001 service=svc-1 start=live client=127.0.0.1:5004 ssrc=3068324875 start_time=1795878790 offset=83125140
+2026-11-28T16:13:31.058 INFO [SRV-HEC] stop session_id=hs-000001
+2026-11-28T16:13:31.058 INFO [SRV-HEC] start session_id=hs-000002 service=svc-3 start=1795878300 client=127.0.0.1:5004 ssrc=2193188795 start_time=1795878300 offset=131250132
+2026-11-28T16:13:31.134 INFO [SRV-HEC] stop session_id=hs-000002
+2026-11-28T16:13:57.293 INFO [SRV-HEC] start session_id=hs-000003 service=svc-3 start=1795878300 client=127.0.0.1:5004 ssrc=690748026 start_time=1795878300 offset=131250132
+2026-11-28T16:13:57.384 INFO [SRV-HEC] stop session_id=hs-000003
+2026-11-28T16:16:23.408 INFO [SRV-HEC] start session_id=hs-000004 service=svc-3 start=1795878300 client=127.0.0.1:5004 ssrc=1218606823 start_time=1795878300 offset=131250132
+2026-11-28T16:16:38.948 INFO [SRV-HEC] stop session_id=hs-000004
+2026-11-28T16:16:38.949 INFO [SRV-HEC] start session_id=hs-000005 service=svc-4 start=live client=127.0.0.1:5004 ssrc=360880513 start_time=1795878998 offset=174125036
+2026-11-28T16:16:39.031 INFO [SRV-HEC] stop session_id=hs-000005
+2026-11-28T16:17:33.252 INFO [SRV-HEC] start session_id=hs-000006 service=svc-4 start=live client=127.0.0.1:5004 ssrc=4253309287 start_time=1795879053 offset=198187532
+2026-11-28T16:17:33.343 INFO [SRV-HEC] stop session_id=hs-000006
+2026-11-28T16:18:32.774 INFO [SRV-HEC] start session_id=hs-000007 service=svc-4 start=live client=127.0.0.1:5004 ssrc=3276529190 start_time=1795879112 offset=224000120
+
+--- logs/chromium.log, DIAG marks (Section 5.1.8; frag marks after frag 0 and osd marks left out) ---
+
+--- measured (from the lines above) ---
+Step 1: KX for svc-3: tuner Locked of the attempt 16:13:57.294 -> key_required key_rejected 16:13:57.382: t_reject = 88 ms (≤ 3 000 ms).
+        No segment of session 2 before "key accepted" (first seg-0.ts of session 2 at 16:16:25.407), no DIAG frame of session 2 before 16:16:25.520.
+        Screen recording (16:13:21 - 16:18:50, 1 frame per 0.5 s, luma average YAVG of ffmpeg signalstats): a bright picture (YAVG > 60) only at
+        0 - 9.5 s (Demo One before the selection), from 184 s (16:16:25, Premium One after K3) and from 313.5 s (16:18:34, Premium Two after K4);
+        YAVG 16.8 - 18.6 (black screen with the dialog) in between. The recording itself (34 MB) is not committed.
+Step 2: key_rejected 16:13:57.382, K3 at 16:16:23.406 (146 s later): T = 1795878300 (16:05:00), T mod 600 = 300; first picture 05:01 (photo 2;
+        + 1 s is issue #36, within ± 1 s), not 146 s later; no restart of the application.
+Step 3: 4 ENTER -> play svc-4 live, key_required no_key; K3 for svc-4: Locked 16:17:33.253 -> key_rejected 16:17:33.340 (87 ms).
+Step 4: K4: key accepted 16:18:32.919, playing 16:18:34.773, "Premium Two" live (photo 5, 08:33).

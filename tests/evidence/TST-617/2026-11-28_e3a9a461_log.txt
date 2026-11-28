@@ -1,0 +1,77 @@
+LOG of TST-617 (Section 5.5.2; evidence type LOG, Section 5.1.6)
+Commit: e3a9a461 (main)  Date: 2026-11-28  Executed by: Smilja Krulj (I-3)
+Environment: development machine, not E3: Ubuntu 26.04.1 LTS, screen 3072x1920 (PRE-2 asks for 1920x1080), Chromium 158 snap,
+             system started with scripts/start.sh --diag (kiosk, page ?diag=1, logs/chromium.log); content/generate.sh of this
+             machine (FFmpeg 8.0.1), encrypted files from package_ts; content/SHA256SUMS not yet on main, so the check of PRE-1
+             could not be made. Keys appear only masked (3A7F…, 0011…, C04E…; NFR-08); the DIAG mark of a typed key character is "•".
+Steps: 16:01 - 16:03, after run 1 of TST-616 in the same session (K3 entered, "Premium One" in ARCHIVE): watched > 4 min (across the loop boundary), I; DOWN, UP; LEFT.
+
+--- logs/middleware.log (play, set_key, session_state, tuner, PSI, protection, key decision, first segment) ---
+2026-11-28T15:56:44.136 INFO [AL-API] recv command id=7 name=set_key key=3A7F… service_id=svc-3
+2026-11-28T15:56:44.136 INFO [AL-API] send event session_state session=2 state=starting reason=null start=1795877100 start_time=null
+2026-11-28T15:56:44.137 INFO [AL-SES] tuner Locked session=2 generation=3
+2026-11-28T15:56:44.137 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=2 generation=3
+2026-11-28T15:56:44.137 INFO [AL-HEC] start ok session=2 headend_session=hs-000003 ssrc=4056526567 start_time=1795877100
+2026-11-28T15:56:44.137 INFO [AL-API] send event session_state session=2 state=waiting_stream reason=null start=1795877100 start_time=1795877100
+2026-11-28T15:56:44.207 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=2 generation=3
+2026-11-28T15:56:44.209 INFO [AL-DSC] protection protected key_set=true session=2 generation=3
+2026-11-28T15:56:44.210 INFO [AL-API] send event session_state session=2 state=validating_key reason=null start=1795877100 start_time=1795877100
+2026-11-28T15:56:44.303 INFO [AL-DSC] key accepted service=svc-3 key=3A7F… session=2 generation=3
+2026-11-28T15:56:46.135 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=2 generation=3
+2026-11-28T15:56:46.135 INFO [AL-API] send event session_state session=2 state=playing reason=null start=1795877100 start_time=1795877100
+2026-11-28T16:02:50.308 INFO [AL-API] recv command id=9 name=play service_id=svc-2 start=live
+2026-11-28T16:02:50.309 INFO [AL-API] send event session_state session=2 state=stopped reason=null start=1795877100 start_time=1795877100
+2026-11-28T16:02:50.310 INFO [AL-API] send event session_state session=3 state=starting reason=null start=live start_time=null
+2026-11-28T16:02:50.314 INFO [AL-SES] tuner Locked session=3 generation=4
+2026-11-28T16:02:50.314 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=3 generation=4
+2026-11-28T16:02:50.314 INFO [AL-HEC] start ok session=3 headend_session=hs-000004 ssrc=3073555507 start_time=1795878170
+2026-11-28T16:02:50.314 INFO [AL-API] send event session_state session=3 state=waiting_stream reason=null start=live start_time=1795878170
+2026-11-28T16:02:50.386 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=3 generation=4
+2026-11-28T16:02:50.389 INFO [AL-DSC] protection clear session=3 generation=4
+2026-11-28T16:02:52.312 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=3 generation=4
+2026-11-28T16:02:52.313 INFO [AL-API] send event session_state session=3 state=playing reason=null start=live start_time=1795878170
+2026-11-28T16:02:55.191 INFO [AL-API] recv command id=11 name=play service_id=svc-3 start=live
+2026-11-28T16:02:55.192 INFO [AL-API] send event session_state session=3 state=stopped reason=null start=live start_time=1795878170
+2026-11-28T16:02:55.192 INFO [AL-API] send event session_state session=4 state=starting reason=null start=live start_time=null
+2026-11-28T16:02:55.194 INFO [AL-HEC] start ok session=4 headend_session=hs-000005 ssrc=1068533148 start_time=1795878175
+2026-11-28T16:02:55.194 INFO [AL-API] send event session_state session=4 state=waiting_stream reason=null start=live start_time=1795878175
+2026-11-28T16:02:55.194 INFO [AL-SES] tuner Locked session=4 generation=5
+2026-11-28T16:02:55.194 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=4 generation=5
+2026-11-28T16:02:55.263 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=4 generation=5
+2026-11-28T16:02:55.266 INFO [AL-DSC] protection protected key_set=true session=4 generation=5
+2026-11-28T16:02:55.266 INFO [AL-API] send event session_state session=4 state=validating_key reason=null start=live start_time=1795878175
+2026-11-28T16:02:55.362 INFO [AL-DSC] key accepted service=svc-3 key=3A7F… session=4 generation=5
+2026-11-28T16:02:57.192 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=4 generation=5
+2026-11-28T16:02:57.193 INFO [AL-API] send event session_state session=4 state=playing reason=null start=live start_time=1795878175
+2026-11-28T16:03:22.895 INFO [AL-API] recv command id=12 name=play service_id=svc-3 start=1795878172
+2026-11-28T16:03:22.902 INFO [AL-API] send event session_state session=4 state=stopped reason=null start=live start_time=1795878175
+2026-11-28T16:03:22.902 INFO [AL-API] send event session_state session=5 state=starting reason=null start=1795878172 start_time=null
+2026-11-28T16:03:22.904 INFO [AL-SES] tuner Locked session=5 generation=6
+2026-11-28T16:03:22.904 INFO [AL-HEC] start ok session=5 headend_session=hs-000006 ssrc=1295339458 start_time=1795878172
+2026-11-28T16:03:22.904 INFO [AL-API] send event session_state session=5 state=waiting_stream reason=null start=1795878172 start_time=1795878172
+2026-11-28T16:03:22.904 INFO [AL-PSI] PAT program=1 pmt_pid=4096 session=5 generation=6
+2026-11-28T16:03:22.982 INFO [AL-PSI] PMT pcr_pid=256 video=256/0x1B audio=257/0x0F session=5 generation=6
+2026-11-28T16:03:22.985 INFO [AL-DSC] protection protected key_set=true session=5 generation=6
+2026-11-28T16:03:22.985 INFO [AL-API] send event session_state session=5 state=validating_key reason=null start=1795878172 start_time=1795878172
+2026-11-28T16:03:23.057 INFO [AL-DSC] key accepted service=svc-3 key=3A7F… session=5 generation=6
+2026-11-28T16:03:24.905 INFO [AL-OUT] segment seg-0.ts duration=1.000 session=5 generation=6
+2026-11-28T16:03:24.906 INFO [AL-API] send event session_state session=5 state=playing reason=null start=1795878172 start_time=1795878172
+
+--- logs/headend.log (start and stop of head-end sessions) ---
+2026-11-28T15:56:44.137 INFO [SRV-HEC] start session_id=hs-000003 service=svc-3 start=1795877100 client=127.0.0.1:5004 ssrc=4056526567 start_time=1795877100 offset=131250132
+2026-11-28T16:02:50.313 INFO [SRV-HEC] stop session_id=hs-000003
+2026-11-28T16:02:50.314 INFO [SRV-HEC] start session_id=hs-000004 service=svc-2 start=live client=127.0.0.1:5004 ssrc=3073555507 start_time=1795878170 offset=74375056
+2026-11-28T16:02:55.193 INFO [SRV-HEC] stop session_id=hs-000004
+2026-11-28T16:02:55.193 INFO [SRV-HEC] start session_id=hs-000005 service=svc-3 start=live client=127.0.0.1:5004 ssrc=1068533148 start_time=1795878175 offset=76562624
+2026-11-28T16:03:22.903 INFO [SRV-HEC] stop session_id=hs-000005
+2026-11-28T16:03:22.904 INFO [SRV-HEC] start session_id=hs-000006 service=svc-3 start=1795878172 client=127.0.0.1:5004 ssrc=1295339458 start_time=1795878172 offset=75250008
+
+--- logs/chromium.log, DIAG marks (Section 5.1.8; frag marks after frag 0 and osd marks left out) ---
+
+--- measured (from the lines above and the photos) ---
+Step 1: "Premium One" played in ARCHIVE from 15:56:46 without a key dialog, across the loop boundary at 16:01:45
+(#EXT-X-DISCONTINUITY before seg-299.ts in logs/middleware.log; DIAG wait 16:01:45.431 -> resume 16:01:47.137, 1.706 s,
+noted for TST-543 / NFR-06, not part of TST-617); I at 16:02:38.680 -> photo 1 "Protected – key OK".
+Step 2: DOWN 16:02:50 (session 3, svc-2 playing), UP 16:02:54.9 (session 4, svc-3 live): playing at 16:02:57.193 without key_required.
+Step 3: LEFT 16:03:22.393 -> play svc-3 start=1795878172 (session 5): playing 16:03:24.906 without key_required (photo 4,
+ARCHIVE 16:02:52, burned-in 02:53; + 1 s is issue #36). Sound: see the NOTE file.

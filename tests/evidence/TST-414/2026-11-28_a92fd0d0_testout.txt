@@ -1,0 +1,21 @@
+TESTOUT of TST-414 (Section 5.1.6)
+Command: node --test --test-reporter=tap webui/tests/*.test.js
+Commit: a92fd0d0 (main)  Date: 2026-11-28  Environment: Node.js 22.22.1, Ubuntu 26.04.1 LTS
+
+Test functions of TST-414:
+ok 18 - TST-414 ARCHIVE position advances from the first picture, distance stays -01:30
+ok 19 - TST-414 before the first picture the position is startTime
+ok 20 - TST-414 a new archive session shows startTime until the first picture of its own player
+ok 21 - TST-414 LIVE mode shows LIVE and the position is now
+ok 22 - TST-414 distance of one hour and more is shown as -H:MM:SS
+ok 23 - TST-414 the position is re-rendered every second until the session ends with a new play
+ok 24 - TST-414 after the first picture the position is re-rendered when its second changes
+ok 33 - TST-414 firstPictureAt is set at the first playing event of the <video> element of a new player
+
+Summary of the run (all Web application tests):
+# tests 49
+# pass 49
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
