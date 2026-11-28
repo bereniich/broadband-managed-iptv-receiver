@@ -400,6 +400,7 @@ TEST(Tst206, OccupiedPortFailsAndReceiveBufferIsLogged) {
     ASSERT_TRUE(tuner.tune(0, kSsrc));
     EXPECT_GT(tuner.effective_receive_buffer(), 0);
     std::lock_guard<std::mutex> lock(log_mutex);
+    for (const std::string& line : log) std::printf("TST-206 log: %s\n", line.c_str());  // LOG evidence (5.1.6)
     ASSERT_EQ(log.size(), 2u);
     EXPECT_NE(log[0].find("[HAL-TUN] cannot open UDP port 127.0.0.1:" + std::to_string(occupied)), std::string::npos)
         << log[0];
